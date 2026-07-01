@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Musicala | Seguimiento de eventos y muestras</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-card">
+        <div class="brand-mark">M</div>
+        <p class="eyebrow">Musicala</p>
+        <h1>Seguimiento de eventos, actividades y muestras de proceso</h1>
+        <p class="muted">Organiza Musicala Fest, muestras, open days, ensayos, rider técnico, publicidad, alimentación, decoración, diplomas y todo ese hermoso caos humano con fechas límite.</p>
+        <button id="loginBtn" class="btn btn-primary">Ingresar con Google</button>
+        <p class="fine-print">Conectado a Firebase: <strong>muestras-de-proceso</strong></p>
+      </div>
+    </section>
+
+    <main class="dashboard hidden" id="dashboard">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="brand-lockup">
+            <div class="brand-mark small">M</div>
+            <div>
+              <strong>Eventos Musicala</strong>
+              <span>Seguimiento 2026</span>
+            </div>
+          </div>
+          <button class="icon-btn" id="logoutBtn" title="Cerrar sesión">↗</button>
+        </div>
+
+        <div class="user-pill" id="userPill"></div>
+
+        <div class="filters">
+          <label>
+            Buscar
+            <input id="searchInput" type="search" placeholder="Evento, lugar, responsable..." />
+          </label>
+          <label>
+            Tipo
+            <select id="typeFilter">
+              <option value="">Todos</option>
+              <option>Evento</option>
+              <option>Muestra de proceso</option>
+              <option>Musicala Fest</option>
+              <option>Open Day</option>
+              <option>Ensayo</option>
+              <option>Actividad interna</option>
+            </select>
+          </label>
+          <label>
+            Estado
+            <select id="statusFilter">
+              <option value="">Todos</option>
+              <option>Planeación</option>
+              <option>En curso</option>
+              <option>En riesgo</option>
+              <option>Listo</option>
+              <option>Realizado</option>
+              <option>Archivado</option>
+            </select>
+          </label>
+        </div>
+
+        <button id="newEventBtn" class="btn btn-primary full">+ Nuevo evento</button>
+        <button id="placesBtn" class="btn btn-ghost full">Base de lugares</button>
+
+        <div class="event-list" id="eventList"></div>
+      </aside>
+
+      <section class="content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Panel general</p>
+            <h2 id="pageTitle">Seguimiento de eventos</h2>
+          </div>
+          <div class="top-actions">
+            <button id="exportAllBtn" class="btn btn-light">Exportar todo</button>
+          </div>
+        </header>
+
+        <section class="kpis" id="kpis"></section>
+
+        <section id="emptyState" class="empty-state">
+          <h3>Selecciona o crea un evento</h3>
+          <p>Desde aquí puedes llevar el control de actividades, muestras, checklist técnico y bitácora. O sea, domesticar el evento antes de que el evento los domestique a ustedes.</p>
+        </section>
+
+        <section id="eventDetail" class="event-detail hidden"></section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="modal" class="modal">
+    <form method="dialog" id="modalForm" class="modal-card"></form>
+  </dialog>
+
+  <input id="importFile" type="file" accept="application/json" hidden />
+
+  <template id="toastTemplate">
+    <div class="toast"></div>
+  </template>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
