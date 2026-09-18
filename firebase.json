@@ -7,13 +7,19 @@
       "**/node_modules/**",
       "README.md",
       "docs/**",
-      "firestore.rules"
+      "firestore.rules",
+      "tests/**",
+      "**/*debug.log",
+      "**/*debug.*.log"
     ],
     "headers": [
       {
         "source": "**/*.@(js|css)",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       }
     ]

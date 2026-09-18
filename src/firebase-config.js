@@ -9,6 +9,7 @@ import {
 import {
   getFirestore,
   collection,
+  collectionGroup,
   doc,
   addDoc,
   setDoc,
@@ -19,6 +20,8 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  limit,
+  runTransaction,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
@@ -45,6 +48,7 @@ export {
   signOut,
   onAuthStateChanged,
   collection,
+  collectionGroup,
   doc,
   addDoc,
   setDoc,
@@ -55,5 +59,7 @@ export {
   query,
   orderBy,
   serverTimestamp,
+  limit,
+  runTransaction,
   writeBatch
 };

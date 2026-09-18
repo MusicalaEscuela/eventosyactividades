@@ -4,14 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Musicala | Seguimiento de eventos y muestras</title>
+  <link rel="icon" type="image/png" href="./logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&family=Sacramento&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <section class="auth-screen" id="authScreen">
       <div class="auth-card">
-        <div class="brand-mark">M</div>
-        <p class="eyebrow">Musicala</p>
+        <img src="./logo.png" alt="Musicala" class="logo-img brand-logo" />
+        <p class="slogan">vida, alma y música</p>
         <h1>Seguimiento de eventos, actividades y muestras de proceso</h1>
         <p class="muted">Organiza Musicala Fest, muestras, open days, ensayos, rider técnico, publicidad, alimentación, decoración, diplomas y todo ese hermoso caos humano con fechas límite.</p>
         <button id="loginBtn" class="btn btn-primary">Ingresar con Google</button>
@@ -23,11 +27,8 @@
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="brand-lockup">
-            <div class="brand-mark small">M</div>
-            <div>
-              <strong>Eventos Musicala</strong>
-              <span>Seguimiento 2026</span>
-            </div>
+            <img src="./logo.png" alt="Musicala" class="logo-img brand-logo-sm" />
+            <span>Eventos y muestras · 2026</span>
           </div>
           <button class="icon-btn" id="logoutBtn" title="Cerrar sesión">↗</button>
         </div>
@@ -65,8 +66,11 @@
           </label>
         </div>
 
+        <button id="annualBtn" class="btn btn-primary full">📅 Sistema anual de muestras</button>
+        <button id="studentsBtn" class="btn btn-ghost full">🎓 Seguimiento de estudiantes</button>
         <button id="newEventBtn" class="btn btn-primary full">+ Nuevo evento</button>
         <button id="placesBtn" class="btn btn-ghost full">Base de lugares</button>
+        <button id="peopleBtn" class="btn btn-ghost full">Base de personas</button>
 
         <div class="event-list" id="eventList"></div>
       </aside>
@@ -78,6 +82,7 @@
             <h2 id="pageTitle">Seguimiento de eventos</h2>
           </div>
           <div class="top-actions">
+            <button id="printBtn" class="btn btn-light">Imprimir / PDF</button>
             <button id="exportAllBtn" class="btn btn-light">Exportar todo</button>
           </div>
         </header>
@@ -89,6 +94,7 @@
           <p>Desde aquí puedes llevar el control de actividades, muestras, checklist técnico y bitácora. O sea, domesticar el evento antes de que el evento los domestique a ustedes.</p>
         </section>
 
+        <section id="annualView" class="hidden"></section>
         <section id="eventDetail" class="event-detail hidden"></section>
       </section>
     </main>
@@ -99,6 +105,11 @@
   </dialog>
 
   <input id="importFile" type="file" accept="application/json" hidden />
+
+  <!-- Sugerencias compartidas por todos los formularios (se llenan desde Firestore). -->
+  <datalist id="personasDisponibles"></datalist>
+  <datalist id="lugaresDisponibles"></datalist>
+  <datalist id="estudiantesDisponibles"></datalist>
 
   <template id="toastTemplate">
     <div class="toast"></div>

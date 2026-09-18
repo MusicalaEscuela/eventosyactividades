@@ -2,6 +2,63 @@
 
 La app usa una colección principal `eventos` y subcolecciones por cada evento.
 
+## Conexión con RIP (padrón de estudiantes)
+
+El padrón de estudiantes **no vive en este proyecto**: está en `rip-musicala`, que
+es otro proyecto de Firebase. Esta app abre una segunda conexión de solo lectura
+(`src/rip-config.js`) y necesita su propio inicio de sesión de Google, porque el
+token de `muestras-de-proceso` no sirve en `rip-musicala`.
+
+De RIP solo se leen dos colecciones:
+
+| Colección | Para qué |
+|---|---|
+| `students` | Nombre e identificador canónico (`studentId`) |
+| `studentComputed` | `clasificacionFinal` (Activo / Inactivo… / Exestudiante) y `ultimaClase` |
+
+`registro` (clases y pagos) **nunca** se consulta: esta app no tiene por qué ver
+información financiera.
+
+### Permisos: no se modifican las reglas de RIP
+
+Las reglas de `rip-musicala` terminan con un comodín recursivo:
+
+```
+match /{document=**} { allow read, write: if isAllowed(); }
+```
+
+Ese comodín **ya cubre** `students` y `studentComputed` para los 4 correos del
+allowlist, así que esta integración **no requiere ningún cambio en las reglas de
+RIP**. No se toca nada de lo que usan el conciliador (`registro`) ni los perfiles
+de docentes (`users/`).
+
+Además, al leer `students` el único `match` que aplica es el comodín, por lo que
+solo se evalúa `isAllowed()` (comparación de lista). Las funciones caras
+—`hasProfile()`, que hace un `exists()` sobre `users/`— no se ejecutan: esta
+integración no añade lecturas facturables por evaluación de reglas.
+
+El módulo `src/rip-config.js` importa de Firestore **únicamente `getDocs`**.
+Escribir en RIP no es una convención: es imposible, porque ninguna función de
+escritura está en su ámbito.
+
+Detalles importantes:
+
+- El estado activo **no es un campo guardado**: RIP lo calcula a partir de los días
+  desde la última clase. Por eso hay que leer `studentComputed` y no solo `students`.
+- Los documentos con `legacyAliasOf` se descartan: son homónimos ya fusionados y
+  duplicarían la lista.
+- El cruce se intenta primero por `studentId` y luego por nombre normalizado, porque
+  durante la migración de RIP conviven ambas llaves.
+- El acceso lo controlan las reglas de RIP (4 correos). Si la cuenta no está
+  autorizada, la pestaña de estudiantes muestra el error y **el resto de la app
+  sigue funcionando**.
+
+### ¿Quién ya se presentó?
+
+Se responde dentro de este proyecto con una consulta `collectionGroup("muestras")`
+que recorre los participantes de **todos** los eventos y los agrupa por `studentId`
+(o por nombre normalizado si el registro es viejo y no lo tiene).
+
 ## eventos/{eventoId}
 
 Campos principales:
@@ -27,15 +84,22 @@ Campos principales:
 
 ## eventos/{eventoId}/muestras/{muestraId}
 
-- `estudianteGrupo`
+- `estudianteGrupo`: nombre tal como se muestra (o el nombre del ensamble).
+- `studentId`: identificador canónico de RIP. Queda vacío para grupos, ensambles
+  o invitados que no están en el padrón; el cruce cae entonces al nombre.
+- `esEnsamble`: `true` cuando la presentación la hacen varios estudiantes.
+- `integrantes`: `[{ studentId, nombre }]`. Solo en ensambles. **Cada integrante
+  cuenta como presentación propia** en el seguimiento de estudiantes.
 - `area`
 - `docente`
 - `repertorio`
+- `genero`: género musical normalizado (incluye Gospel; ver `src/repertorio.js`).
 - `bloque`
 - `duracionMin`
 - `estado`
 - `prioridad`
-- `recursos`
+- `recursos`: texto de compatibilidad con recursos seleccionados.
+- `recursosSeleccionados`: arreglo de recursos técnicos marcados en el formulario.
 - `notas`
 
 ## eventos/{eventoId}/checklist/{itemId}
@@ -48,6 +112,19 @@ Campos principales:
 - `prioridad`
 - `notas`
 
+## eventos/{eventoId}/documentos/{documentoId}
+
+Riders, permisos, autorizaciones y demás papeleo. La app **no almacena archivos**:
+guarda el enlace a donde ya viven (Drive, Notion, etc.).
+
+- `titulo`
+- `tipo`: Rider técnico, Permiso / autorización de uso del espacio, Autorización de
+  imagen, Carta de solicitud, Repertorio / setlist, Circular a familias, Programa de
+  mano, Contrato, Póliza / seguro, Factura / cuenta de cobro, Listado de asistencia,
+  Diplomas / certificados, Registro fotográfico o video, Otro.
+- `url`: enlace al archivo.
+- `responsable`, `fechaLimite`, `estado`, `notas`.
+
 ## eventos/{eventoId}/bitacora/{notaId}
 
 - `tipo`: Nota, Riesgo, Decisión, Cambio, Aprendizaje.
@@ -58,8 +135,60 @@ Campos principales:
 
 ## lugares/{lugarId}
 
-Base maestra independiente de los eventos: `nombre`, `capacidad`, `costo`,
-`contacto`, `estado`, `tecnica`, `apoyo` y `observaciones`.
+Base maestra independiente de los eventos.
+
+Identificación y gestión:
+
+- `nombre`: nombre del espacio.
+- `capacidad`: **número** de personas (no texto).
+- `estado`: Por contactar, Contactado, En evaluación, Disponible, Descartado.
+
+Costo:
+
+- `costoModalidad`: Por definir, Gratis / préstamo, Por hora, Por jornada, Por evento,
+  Porcentaje de taquilla, Intercambio / convenio.
+- `costoValor`: **número** en pesos colombianos (o `null`).
+- `costoIncluye`: qué incluye el precio y condiciones de pago.
+
+Contacto: `contactoNombre`, `contactoTelefono`, `contactoEmail`.
+
+Dotación (todos **booleanos**): `sonido`, `luces`, `tarima`, `camerinos`, `bodega`,
+`parqueadero`, `sillas`, `proyector`, `wifi`, `accesible`. Complemento libre en
+`notasTecnicas`.
+
+Ubicación y horarios: `direccion`, `ciudad`, `diasDisponibles`, `horarioDesde`,
+`horarioHasta` (HH:MM), `documentos`.
+
+Notas libres: `observaciones`.
+
+> Compatibilidad: los registros antiguos con `costo`, `contacto`, `tecnica` y `apoyo`
+> se siguen mostrando y se migran al editarlos.
+
+## personas/{personaId}
+
+Base maestra de docentes, técnicos, proveedores y aliados. Se registran una vez y
+alimentan las sugerencias de responsable, docente, encargado, equipo y proveedor.
+
+- `nombre`
+- `tipo`: Docente, Estudiante, Administrativo, Producción, Técnico, Proveedor,
+  Aliado, Familia / acudiente, Externo.
+- `area`, `rol`
+- `telefono`, `email`, `disponibilidad`
+- `notas`
+
+## Vista de tablero (Kanban)
+
+Las pestañas con estado (actividades, muestras, equipo, rider, checklist y documentos)
+se pueden ver como tablero. Las columnas agrupan estados afines y al arrastrar una
+tarjeta se escribe el `estado` de la columna destino:
+
+| Columna | Estados que agrupa | Estado que guarda |
+|---|---|---|
+| Pendiente | Pendiente, vacío, cualquier valor desconocido | `Pendiente` |
+| En curso | En curso | `En curso` |
+| En riesgo / bloqueado | En riesgo, Bloqueado | `En riesgo` |
+| Listo / confirmado | Listo, Confirmado | `Listo` |
+| Cerrado | Realizado, Cancelado | `Realizado` |
 
 ## eventos/{eventoId}/programacion/{momentoId}
 
@@ -72,3 +201,79 @@ Base maestra independiente de los eventos: `nombre`, `capacidad`, `costo`,
 ## eventos/{eventoId}/rider/{elementoId}
 
 `elemento`, `categoria`, `cantidad`, `proveedor`, `ubicacion`, `estado` y `notas`.
+
+## Sistema anual de Muestras de Proceso
+
+### configuracion/muestrasProceso
+
+Documento maestro independiente de los eventos. Implementación de dominio en
+`src/muestras-model.js`; vista, listeners y transacciones en `src/muestras-anual.js`.
+
+- `descripcion`, `agrupacion`, `decisiones`: textos institucionales editables.
+- `ciclos`: `[{id, nombre, regla, mes, semana}]`. Su longitud determina la cantidad
+  de ciclos. Identificadores estables; cambiar el nombre no crea otro ciclo.
+  Reglas: `pascua`, `ultima`, `numero`, `sabado`. `mes` es 1–12 y `semana` 1–4.
+  Para Pascua, `semana=2` es la segunda semana completa antes de Domingo de Ramos.
+- `distribucion`: `[{id, dia, nombre, emoji, instrumentos, descripcion, orden, activo}]`.
+  `dia`: 0 lunes a 6 domingo. Las opciones de participantes salen de familias activas.
+  Desactivar una familia conserva registros previos; el editor mantiene el valor anterior.
+- `bloques`: `[{id, nombre, hora, duracion, cupo}]`, horario `HH:MM` y duración en minutos.
+  No hay un número fijo de bloques. `pausa`: mínimo de minutos entre bloques.
+- `politica`: `{slot, obras, maxObras, repertorio, margen, descripcion}`.
+- `capacidad`: `{umbral, alerta, descripcion}`. `umbral` es el número de familias
+  desbordadas para recomendar segunda semana; `alerta` son los últimos cupos disponibles.
+- `revision`, `updatedAt`, `updatedBy`: control de concurrencia y autoría.
+
+### configuracion/muestrasProceso/anios/{YYYY}
+
+- `fechasCalculadas`: `[{id, fechaInicio, fechaFin}]`, instantánea calculada al guardar.
+- `fechasModificadas`: solo excepciones manuales respecto al cálculo al guardar.
+- `estado`: Borrador o Validado; `notas` editables.
+- `eventosGenerados`: mapa de ID de ciclo a ID de evento.
+- `revision`, `updatedAt`, `updatedBy`.
+
+Las fechas guardadas del año prevalecen sobre cálculos nuevos. Cambiar reglas generales
+no modifica automáticamente los calendarios ya guardados. **Calcular** y **Restaurar**
+preparan un nuevo borrador; **Guardar** lo confirma. Las modificaciones de calendario
+no cambian fechas de eventos ya generados: esos eventos conservan su edición operativa.
+Quitar un ciclo no borra sus eventos ni documentos anuales históricos.
+
+### eventos/{eventoId}/muestras/{muestraId}: familia instrumental
+
+Campos adicionales opcionales: `familiaInstrumentalId`, `familiaInstrumentalNombre`.
+El ID es la referencia estable; el nombre conserva una etiqueta legible para exportaciones
+y familias anteriores. No se migran ni se eliminan registros antiguos automáticamente.
+
+El panel cuenta **todos los registros de la subcolección**, incluidos los cancelados
+mientras permanezcan inscritos, y muestra aparte los que no tengan familia activa.
+No cuenta integrantes del ensamble para capacidad ni altera el seguimiento individual.
+La capacidad normal es la suma de cupos de bloques. Estado disponible / últimos cupos /
+completo / ampliar según conteo. Jornadas adicionales: `ceil(conteo/capacidad)-1`.
+Se recomienda conservar el día de la familia y extender a otra semana. Solo se advierte;
+la coordinación decide y las inscripciones nunca se bloquean por capacidad.
+
+### Generación y compatibilidad
+
+Los eventos generados usan `muestra-proceso-{YYYY}-{cicloId}` e incluyen
+`sistemaAnual: {anio, cicloId}`, tipo `Muestra de proceso`, estado `Planeación`, fechas,
+objetivo, notas y autoría. Una transacción lee primero configuración, año y todos los
+IDs de evento; crea solamente los faltantes y actualiza el mapa anual de forma atómica.
+También reconoce eventos cargados que ya tengan el mismo metadato año/ciclo.
+No se intenta deducir equivalencia de eventos manuales por su título.
+
+Una copia importada pierde `sistemaAnual` para que no se confunda con el evento canónico.
+Exportación/importación de eventos conserva el resto del formato y los nuevos campos
+opcionales de participantes. La exportación global existente sigue siendo de eventos;
+no es una copia de seguridad de la configuración anual.
+
+### configuracion/muestrasProceso/historial/{id}
+
+`fecha`, `usuario`, `seccion`, `anterior`, `nuevo`. Los cambios de configuración y año
+se escriben en la misma transacción que su historial. El cliente rechaza guardados
+cuando la revisión cambió desde que se abrió el borrador. Lectura mediante `orderBy(fecha)`
+y límite de 30; no requiere un índice compuesto. No hay purga automática del historial.
+
+Reglas: mismo `googleUser()` y lista autorizada de eventos. Lectura/creación/actualización
+maestra y anual para el equipo; borrado para `isAdmin()`. Historial: lectura autorizada,
+creación con `usuario` igual al correo autenticado y modificación/borrado solo admin.
+No cambia ninguna regla de RIP, eventos, estudiantes, lugares o personas.

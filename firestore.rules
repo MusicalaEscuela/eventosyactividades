@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Solo el equipo autorizado. Antes bastaba con cualquier cuenta de Google;
+    // se cerró al confirmar que este proyecto lo usa únicamente el personal
+    // con acceso, igual que RIP (rip-musicala).
+    function googleUser() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == "google.com"
+        && request.auth.token.email in [
+          "alekcaballeromusic@gmail.com",
+          "catalina.medina.leal@gmail.com",
+          "imusicala@gmail.com",
+          "adminmusicala@gmail.com",
+          "musicalaasesor@gmail.com"
+        ];
+    }
+
+    function isAdmin() {
+      return googleUser()
+        && request.auth.token.email in [
+          "alekcaballeromusic@gmail.com",
+          "catalina.medina.leal@gmail.com",
+          "imusicala@gmail.com"
+        ];
+    }
+
+    // App: seguimiento de eventos, actividades y muestras de proceso.
+    // Ajusta esta regla si quieres permitir acceso a más correos del equipo.
+    match /eventos/{eventoId} {
+      allow read, create, update: if googleUser();
+      allow delete: if isAdmin();
+
+      match /{subcollection}/{docId} {
+        allow read, create, update: if googleUser();
+        allow delete: if isAdmin();
+      }
+    }
+
+    // Consulta de grupo de colecciones.
+    //
+    // El seguimiento de estudiantes recorre las muestras de TODOS los eventos
+    // con collectionGroup("muestras") para saber quién ya se presentó.
+    //
+    // Ese tipo de consulta NO queda cubierta por el match anidado de arriba:
+    // al no ir atada a un evento padre concreto, Firestore exige una regla
+    // propia con comodín recursivo. Sin esto la consulta falla con
+    // permission-denied aunque el usuario sí pueda leer cada muestra de a una.
+    //
+    // Es solo lectura: crear, editar y borrar siguen pasando por la regla
+    // anidada de eventos/{eventoId}/{subcollection}/{docId}.
+    match /{path=**}/muestras/{muestraId} {
+      allow read: if googleUser();
+    }
+
+    // Guía institucional: mismo equipo autorizado; sin acceso público.
+    match /configuracion/muestrasProceso {
+      allow read, create, update: if googleUser();
+      allow delete: if isAdmin();
+      match /anios/{anio} {
+        allow read, create, update: if googleUser();
+        allow delete: if isAdmin();
+      }
+      // Registro de auditoría: el cliente solo puede agregar entradas propias.
+      match /historial/{cambio} {
+        allow read: if googleUser();
+        allow create: if googleUser()
+          && request.resource.data.usuario == request.auth.token.email;
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Bases maestras: viven fuera de los eventos y se reutilizan en todos.
+    match /lugares/{lugarId} {
+      allow read, create, update: if googleUser();
+      allow delete: if isAdmin();
+    }
+
+    match /personas/{personaId} {
+      allow read, create, update: if googleUser();
+      allow delete: if isAdmin();
+    }
+  }
+}
