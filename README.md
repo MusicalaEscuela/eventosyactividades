@@ -113,6 +113,30 @@ El archivo `firebase.json` ya apunta al proyecto `muestras-de-proceso` por `.fir
 
 ## Sistema anual de Muestras de Proceso
 
+### Muestras Artísticas: Música, Danza, Teatro y Artes Plásticas
+
+El mismo módulo evoluciona de una guía solo musical a un manual operativo de
+**Muestras Artísticas**. La configuración conserva `configuracion/muestrasProceso`
+para no separar datos existentes, pero ahora tiene `schemaVersion: 2`,
+`areasArtisticas` y `modalidadesArtisticas`.
+
+- Áreas iniciales: Música (`slots`), Teatro y Danza (`presentacionesDuracion`) y
+  Artes Plásticas (`obrasExpuestas`). Todas son editables y se pueden activar o
+  desactivar sin borrar participantes históricos.
+- Música conserva su distribución de lunes a sábado. La segunda semana muestra
+  Teatro, Danza, Exposición y posibles ampliaciones musicales; es una guía flexible,
+  no una reasignación automática de fechas.
+- Participantes ahora guardan opcionalmente `areaArtisticaId`/
+  `areaArtisticaNombre` y `modalidadPresentacionId`/
+  `modalidadPresentacionNombre`. Música conserva además los campos anteriores
+  `familiaInstrumentalId` y `familiaInstrumentalNombre` para compatibilidad.
+- Danza y Teatro suman duración por presentación —un grupo cuenta una vez— y Artes
+  Plásticas registra obras y selección para exposición. Un registro antiguo sin los
+  nuevos campos se muestra como Música y no se modifica automáticamente.
+- La ficha de Artes Plásticas queda preparada con título, técnica, materiales,
+  descripción, URL opcional de fotografía, cantidad de obras y selección para
+  exposición. La impresión de cartelas puede construirse después desde esos datos.
+
 El botón **📅 Sistema anual de muestras** abre la guía institucional sin seleccionar
 un evento. Primero muestra calendario, semana tipo, bloques, política de presentación,
 ampliaciones y decisiones; la edición está separada en secciones desplegables.

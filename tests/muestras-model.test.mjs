@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaults,calendar,easter,iso,capacityRows,validate,validateDates,eventId} from '../src/muestras-model.js';
+import {defaults,calendar,easter,iso,capacityRows,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,normalizeConfig,validate,validateDates,eventId} from '../src/muestras-model.js';
 test('Las cuatro fechas base de 2026 coinciden exactamente',()=>{
  assert.deepEqual(calendar(2026,defaults()).map(x=>[x.fechaInicio,x.fechaFin]),[['2026-03-16','2026-03-21'],['2026-05-25','2026-05-30'],['2026-09-14','2026-09-19'],['2026-11-30','2026-12-05']]);
 });
@@ -25,4 +25,26 @@ test('Validación de bloques, reglas, políticas, fechas imposibles e IDs establ
  const c=defaults();assert.doesNotThrow(()=>validate(c));c.bloques[1].hora='18:00';assert.throws(()=>validate(c));
  assert.throws(()=>validateDates([{fechaInicio:'2026-02-30',fechaFin:'2026-03-02'}]));assert.throws(()=>validateDates([{fechaInicio:'2026-05-30',fechaFin:'2026-05-25'}]));
  assert.equal(eventId(2027,'1'),eventId(2027,'1'));assert.notEqual(eventId(2026,'1'),eventId(2027,'1'));
+});
+test('Áreas artísticas: modalidades y métricas sin migrar registros antiguos',()=>{
+ const c=normalizeConfig(defaults());
+ assert.deepEqual(activeArtAreas(c).map(a=>a.id),['musica','teatro','danza','artes-plasticas']);
+ assert.equal(activeModalities(c,'teatro').find(m=>m.id==='teatro-grupal').duracionSugerida,10);
+ assert.equal(activeModalities(c,'danza').find(m=>m.id==='danza-coreografia').cupo,10);
+ assert.equal(artAreaForRow(c,{area:'Piano'}),'musica');
+ assert.equal(artAreaForRow(c,{area:'Artes Plásticas'}),'artes-plasticas');
+ assert.equal(modalityForRow(c,{areaArtisticaId:'teatro',modalidadPresentacionId:'teatro-grupal'}).nombre,'Escena grupal');
+ const rows=[
+  {areaArtisticaId:'teatro',modalidadPresentacionId:'teatro-grupal',duracionMin:10,integrantes:Array(7)},
+  {areaArtisticaId:'danza',modalidadPresentacionId:'danza-coreografia',duracionMin:6},
+  {areaArtisticaId:'artes-plasticas',cantidadObras:2,seleccionadaExposicion:true},
+  {area:'Piano',familiaInstrumentalId:'piano'}
+ ];
+ const metrics=artCapacityRows(c,rows);
+ assert.deepEqual(metrics.find(a=>a.id==='teatro').cantidad,1);
+ assert.equal(metrics.find(a=>a.id==='teatro').totalDuracion,10);
+ assert.equal(metrics.find(a=>a.id==='danza').totalDuracion,6);
+ assert.equal(metrics.find(a=>a.id==='artes-plasticas').cantidad,2);
+ assert.equal(metrics.find(a=>a.id==='artes-plasticas').expuestas,1);
+ assert.doesNotThrow(()=>validate(c));
 });

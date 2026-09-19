@@ -7,13 +7,14 @@ const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || `${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
 const browser=await chromium.launch({headless:true,channel:"msedge"});
 const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
+page.setDefaultTimeout(8000);
 page.on('pageerror',e=>{errors.push(e.message);console.log('PAGE ERROR',e.stack)});page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE',m.text())});page.on('dialog',d=>d.accept());
 await page.route('**/src/firebase-config.js',r=>r.fulfill({contentType:'text/javascript',path:fileURLToPath(new URL('./firebase-mock.js',import.meta.url))}));
 await page.route('**/src/rip-config.js',r=>r.fulfill({contentType:'text/javascript',body:`export const ripSignIn=async()=>{};export const ripSignOut=async()=>{};export const ripRestoreSession=async()=>null;export const ripCurrentUser=()=>null;export const ripFetchEstudiantes=async()=>[];export const ripNorm=x=>String(x||'').toLowerCase();export const RIP_ALLOWED_EMAILS=[];`}));
 try{
- await page.goto('http://127.0.0.1:4173');
+ await page.goto(process.env.TEST_URL || 'http://127.0.0.1:4173');
  await page.waitForFunction(()=>window.testStore); await page.locator('#loginBtn').click();await page.locator('#annualBtn').click();
- await page.getByRole('heading',{name:'Muestras de Proceso Musicala',exact:true}).waitFor();
+ await page.getByRole('heading',{name:'Sistema Anual de Muestras Artísticas Musicala',exact:true}).waitFor();
  assert.equal(await page.locator('.annual-cycles .annual-card').count(),4);
  await page.locator('[data-annual="edit"]').click();
  await page.locator('[data-path="descripcion"]').fill('Guía institucional verificada en prueba local.');
@@ -52,8 +53,14 @@ try{
  await page.locator('[data-event-id="muestra-proceso-2027-1"]').click();await page.locator('[data-tab="muestras"]').click();
  await page.getByText('Estudiante antiguo',{exact:true}).waitFor();await page.getByText('1 presentación(es) sin familia activa asignada.',{exact:false}).waitFor();
  await page.locator('[data-edit-child="muestras:old"]').click();
- await page.locator('[name="familiaInstrumentalId"]').selectOption('piano');await page.locator('#modalForm button[type="submit"]').click();
+ await page.locator('[name="areaArtisticaId"]').selectOption('musica');await page.locator('[name="modalidadPresentacionId"]').selectOption('piano');await page.locator('#modalForm button[type="submit"]').click();
  await page.waitForFunction(()=>window.testStore.get('eventos/muestra-proceso-2027-1/muestras/old')?.familiaInstrumentalId==='piano');
+ // Cambio contextual: Danza muestra sus propios campos y deja el registro musical intacto.
+ await page.locator('[data-action="add-child"]').click();await page.locator('[name="areaArtisticaId"]').selectOption('danza');
+ await page.locator('[name="modalidadPresentacionId"]').selectOption('danza-coreografia');
+ await page.locator('[name="nombrePresentacion"]').fill('Coreografía de prueba');await page.locator('[name="duracionMin"]').fill('6');
+ await page.locator('[name="estudianteGrupo"]').fill('Grupo Danza');await page.locator('#modalForm button[type="submit"]').click();
+ await page.waitForFunction(()=>window.testStore.all().some(([p,d])=>p.includes('/muestras/')&&d.areaArtisticaId==='danza'&&d.modalidadPresentacionId==='danza-coreografia'));
  await page.locator('[data-vista="tablero"]').click();await page.getByText('Estudiante antiguo',{exact:true}).waitFor();
  await page.locator('#logoutBtn').click();await page.locator('#loginBtn').waitFor({state:'visible'});
  assert.deepEqual(errors,[]);

@@ -204,6 +204,44 @@ tarjeta se escribe el `estado` de la columna destino:
 
 ## Sistema anual de Muestras de Proceso
 
+### Evolución: Sistema Anual de Muestras Artísticas
+
+El documento existente `configuracion/muestrasProceso` se mantiene como ubicación
+canónica por compatibilidad y agrega `schemaVersion: 2`. No se crea una colección
+paralela ni se migran masivamente participantes.
+
+- `tituloSistema`, `descripcion`, `filosofia`, `agrupacion`, `decisiones`:
+  contenido institucional editable.
+- `areasArtisticas`: `[{id, nombre, emoji, descripcion, tipoMedicion, activo,
+  semana, dias}]`. Tipos actuales: `slots`, `presentacionesDuracion`,
+  `obrasExpuestas`.
+- `modalidadesArtisticas`: modalidades no musicales con `id`,
+  `areaArtisticaId`, `nombre`, `emoji`, `duracionSugerida`, `cupo`,
+  `observaciones`, `dia`, `activo`. Música reutiliza `distribucion` como sus
+  modalidades para conservar IDs de familias instrumentales ya guardados.
+- Cada ciclo puede incluir `etiqueta`, por ejemplo Muestra de proceso, Muestra
+  intermedia, Muestra especial o Muestra de cierre.
+
+### Participantes de muestras: campos progresivos
+
+Los registros nuevos pueden incluir `areaArtisticaId`, `areaArtisticaNombre`,
+`modalidadPresentacionId` y `modalidadPresentacionNombre`. Para Música se mantiene
+la duplicación compatible `familiaInstrumentalId` y `familiaInstrumentalNombre`.
+
+Campos contextuales opcionales:
+
+- Danza: `nombrePresentacion`, `musicaPista`, `vestuario`,
+  `necesidadesEscenario`, `duracionMin`.
+- Teatro: `nombrePresentacion`, `utileria`, `escenografia`, `audio`,
+  `iluminacion`, `duracionMin`.
+- Artes Plásticas: `tituloObra`, `tecnica`, `materiales`, `cantidadObras`,
+  `descripcionObra`, `fotografiaUrl`, `seleccionadaExposicion` y `expuesta`.
+
+La capacidad cuenta un documento como una presentación aunque tenga integrantes.
+Teatro y Danza suman `duracionMin` para estimar bloque. Artes Plásticas suma obras
+y obras seleccionadas. Un documento previo sin área artística se infiere en lectura
+como Música desde `area`; no se escribe esa inferencia ni se altera historial.
+
 ### configuracion/muestrasProceso
 
 Documento maestro independiente de los eventos. Implementación de dominio en
@@ -268,7 +306,7 @@ no es una copia de seguridad de la configuración anual.
 
 ### configuracion/muestrasProceso/historial/{id}
 
-`fecha`, `usuario`, `seccion`, `anterior`, `nuevo`. Los cambios de configuración y año
+`fecha`, `usuario`, `seccion`, `anterior`, `nuevo`, `comentario` opcional. Los cambios de configuración y año
 se escriben en la misma transacción que su historial. El cliente rechaza guardados
 cuando la revisión cambió desde que se abrió el borrador. Lectura mediante `orderBy(fecha)`
 y límite de 30; no requiere un índice compuesto. No hay purga automática del historial.

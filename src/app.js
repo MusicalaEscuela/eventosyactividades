@@ -714,7 +714,10 @@ function openStudentPicker(modo = "individual") {
       </label>
     </div>
 
-    ${annualSystem.familyField()}
+    <div class="form-grid">
+      ${annualSystem.areaField({ areaArtisticaId: "musica" })}
+      <div id="pickerModalidad">${annualSystem.modalityField({}, "musica")}</div>
+    </div>
     <div class="picker-lista" id="pickerLista">${renderPickerLista()}</div>
     <p class="field-hint" id="pickerPie">Ninguno seleccionado todavía</p>
   `, null);
@@ -735,6 +738,9 @@ function openStudentPicker(modo = "individual") {
     state.picker.soloActivos = event.target.checked;
     repintar();
   });
+  modalForm.querySelector('[name="areaArtisticaId"]').addEventListener("change", event => {
+    modalForm.querySelector("#pickerModalidad").innerHTML = annualSystem.modalityField({}, event.target.value);
+  });
   lista.addEventListener("change", event => {
     const check = event.target.closest("[data-pick]");
     if (!check) return;
@@ -754,10 +760,9 @@ function openStudentPicker(modo = "individual") {
       return;
     }
 
-    const familiaId = modalForm.querySelector('[name="familiaInstrumentalId"]').value;
-    const base = {
-      familiaInstrumentalId: familiaId,
-      familiaInstrumentalNombre: annualSystem.familyName(familiaId),
+    const base = annualSystem.normalizeParticipant({
+      areaArtisticaId: modalForm.querySelector('[name="areaArtisticaId"]').value,
+      modalidadPresentacionId: modalForm.querySelector('[name="modalidadPresentacionId"]').value,
       area: "Música",
       estado: "Pendiente",
       prioridad: "Media",
@@ -766,7 +771,7 @@ function openStudentPicker(modo = "individual") {
       createdAt: serverTimestamp(),
       createdByEmail: state.user.email,
       createdByName: state.user.displayName || state.user.email
-    };
+    });
 
     try {
       const batch = writeBatch(db);
@@ -880,7 +885,7 @@ function mostrarVista(vista) {
     $("#studentsBtn").classList.remove("active-view");
     eventDetail.classList.add("hidden");
     emptyState.classList.add("hidden");
-    pageTitle.textContent = "Sistema anual de Muestras de Proceso";
+    pageTitle.textContent = "Sistema anual de Muestras Artísticas";
     annualSystem.render();
     return;
   }
@@ -1240,13 +1245,13 @@ function renderTabContent(tab) {
 
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
-    return table(["Estudiante / grupo", "Área", "Familia instrumental", "Repertorio / actividad", "Género", "Docente", "Bloque", "Duración", "Estado", "Recursos", ""], rows.map(row => [
+    return table(["Estudiante / grupo", "Área artística", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Duración", "Estado", "Recursos", ""], rows.map(row => [
       row.esEnsamble
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <div class="muted" style="font-size:.78rem;margin-top:3px;">🎻 ${(row.integrantes || []).map(i => escapeHtml(i.nombre)).join(", ")}</div>`
         : escapeHtml(row.estudianteGrupo || "Sin nombre"),
-      escapeHtml(row.area || ""),
-      escapeHtml(annualSystem.familyName(row.familiaInstrumentalId, row.familiaInstrumentalNombre || "Sin asignar")),
+      escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
+      escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
       (conteoObras.get(ripNorm(row.repertorio || ""))?.length > 1)
         ? `${escapeHtml(row.repertorio)} <span class="badge danger">Repetida</span>`
         : escapeHtml(row.repertorio || ""),
@@ -1424,6 +1429,16 @@ function openChildDialog(tab, row = null) {
   const content = childForm(tab, row || {});
   setModal(content, isEdit ? "Guardar cambios" : "Agregar");
 
+  // El formulario de participantes parte del área artística y muestra solo los
+  // campos de Música, Danza, Teatro o Artes Plásticas que correspondan.
+  const areaArtisticaSelect = modalForm.querySelector('[name="areaArtisticaId"]');
+  if (tab === "muestras" && areaArtisticaSelect) {
+    areaArtisticaSelect.addEventListener("change", () => {
+      const context = modalForm.querySelector("#areaContext");
+      if (context) context.innerHTML = annualSystem.participantContext({}, areaArtisticaSelect.value);
+    });
+  }
+
   // Al escoger una obra del banco de repertorio, se propone su género.
   const repertorioInput = modalForm.querySelector('[name="repertorio"]');
   const generoSelect = modalForm.querySelector('[name="genero"]');
@@ -1499,7 +1514,7 @@ function openChildDialog(tab, row = null) {
     const data = {};
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "muestras") {
-      data.familiaInstrumentalNombre = data.familiaInstrumentalId ? annualSystem.familyName(data.familiaInstrumentalId, row?.familiaInstrumentalNombre || "") : "";
+      annualSystem.normalizeParticipant(data, row || {});
       const seleccionados = formData.getAll("recursosSeleccionados").map(value => value.trim()).filter(Boolean);
       const otroRecurso = String(formData.get("recursoOtro") || "").trim();
       if (otroRecurso && !seleccionados.includes(otroRecurso)) seleccionados.push(otroRecurso);
@@ -1587,17 +1602,15 @@ function childForm(tab, row = {}) {
           <input type="hidden" name="studentId" value="${escapeHtml(row.studentId || "")}" />
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
-        <label>Área<select name="area">${selectOptions(FIELD_OPTIONS.areas, row.area || "Música")}</select></label>
+        ${annualSystem.areaField(row)}
         <label>Docente<input name="docente" list="personasDisponibles" value="${escapeHtml(row.docente || "")}" /></label>
         <label class="wide">Repertorio / actividad
           <input name="repertorio" list="bancoRepertorio" value="${escapeHtml(row.repertorio || "")}" placeholder="Escribe la obra o elígela del banco" />
           <datalist id="bancoRepertorio">${BANCO_REPERTORIO.map(song => `<option value="${escapeHtml(song.titulo)}">${escapeHtml(song.artista)}</option>`).join("")}</datalist>
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
         </label>
-        ${annualSystem.familyField(row)}
+        <div class="wide" id="areaContext">${annualSystem.participantContext(row)}</div>
         <label>Género<select name="genero">${opcionesConSeleccion(opcionesGeneros, generoActual)}</select></label>
-        <label>Bloque<input name="bloque" value="${escapeHtml(row.bloque || "")}" placeholder="Bloque 1, Infantil, Adultos..." /></label>
-        <label>Duración min.<input type="number" min="0" name="duracionMin" value="${escapeHtml(row.duracionMin || "")}" /></label>
         <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
         <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, row.prioridad || "Media")}</select></label>
         <fieldset class="wide selector-recursos">
