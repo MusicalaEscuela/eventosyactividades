@@ -29,6 +29,10 @@ try{
  await page.waitForFunction(()=>window.testStore.all().filter(([p])=>p.startsWith('eventos/')).length===4);
  await page.locator('[data-annual="generate"]').click();
  assert.equal(await page.evaluate(()=>window.testStore.all().filter(([p])=>p.startsWith('eventos/')).length),4);
+ await page.locator('[data-annual="generateJornadas"]').click();
+ await page.waitForFunction(()=>window.testStore.all().filter(([p])=>p.startsWith('eventos/')).length===40);
+ await page.locator('[data-annual="generateJornadas"]').click();
+ assert.equal(await page.evaluate(()=>window.testStore.all().filter(([p])=>p.startsWith('eventos/')).length),40);
  await page.locator('#annualYear').fill('2026');await page.locator('#annualYear').dispatchEvent('change');
  await page.waitForFunction(()=>document.querySelector('.annual-cycles').textContent.includes('17 de marzo'));
  await page.reload();await page.locator('#annualBtn').click();

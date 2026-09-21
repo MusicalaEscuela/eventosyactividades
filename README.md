@@ -137,6 +137,20 @@ para no separar datos existentes, pero ahora tiene `schemaVersion: 2`,
   descripción, URL opcional de fotografía, cantidad de obras y selección para
   exposición. La impresión de cartelas puede construirse después desde esos datos.
 
+### Crear jornadas para empezar la organización
+
+El calendario ahora ofrece dos acciones distintas. **Crear 4 ciclos generales**
+crea los cuatro contenedores anuales. **Crear jornadas programadas** crea eventos
+separados por fecha y área: las seis familias de Música durante la primera semana,
+Teatro y Danza en la segunda y una exposición de Artes Plásticas que puede abarcar
+toda esa semana. Cada jornada nace en Planeación con responsable Coordinación y
+queda lista para participantes, cronograma, rider, checklist y bitácora.
+
+El sistema muestra un resumen antes de crear y conserva cualquier jornada que ya
+exista. Los identificadores deterministas por año, ciclo y jornada impiden duplicados.
+Si dos áreas configuradas ocupan el mismo día, advierte el conflicto en el resumen y
+lo crea solamente tras confirmación: nunca mueve una fecha sin decisión humana.
+
 El botón **📅 Sistema anual de muestras** abre la guía institucional sin seleccionar
 un evento. Primero muestra calendario, semana tipo, bloques, política de presentación,
 ampliaciones y decisiones; la edición está separada en secciones desplegables.

@@ -138,3 +138,25 @@ export function validateDates(rows) {
   for(const r of rows) if(!/^\d{4}-\d{2}-\d{2}$/.test(r.fechaInicio)||!/^\d{4}-\d{2}-\d{2}$/.test(r.fechaFin)||!Number.isFinite(Date.parse(r.fechaInicio))||!Number.isFinite(Date.parse(r.fechaFin))||iso(new Date(r.fechaInicio))!==r.fechaInicio||iso(new Date(r.fechaFin))!==r.fechaFin||r.fechaInicio>r.fechaFin) throw Error('Cada ciclo necesita fechas válidas y fin posterior o igual al inicio.');
 }
 export const eventId=(year,id)=>`muestra-proceso-${year}-${id}`;
+export const addDays=(dateValue,days)=>iso(new Date(new Date(`${dateValue}T12:00:00Z`).getTime()+days*86400000));
+export const jornadaEventId=(year,cycleId,jornadaId)=>`muestra-artistica-${year}-${cycleId}-${jornadaId}`;
+/** Jornadas concretas que el equipo puede empezar a organizar antes de inscribir. */
+export function plannedJornadas(config,cycleDate) {
+  const c=normalizeConfig(config), week2=addDays(cycleDate.fechaInicio,7), list=[];
+  activeFamilies(c).forEach(f=>list.push({
+    id:`s1-musica-${f.id}`,semana:1,fechaInicio:addDays(cycleDate.fechaInicio,f.dia),fechaFin:addDays(cycleDate.fechaInicio,f.dia),
+    areaArtisticaId:'musica',areaArtisticaNombre:'Música',emoji:f.emoji,nombre:f.nombre,modalidadIds:[f.id],
+    descripcion:`Jornada de Música: ${f.nombre}. ${f.instrumentos||''}`.trim(),dia:f.dia
+  }));
+  activeArtAreas(c).filter(a=>a.id!=='musica').forEach(area=>{
+    const modes=activeModalities(c,area.id), day=modes.length?Math.min(...modes.map(m=>Number.isInteger(m.dia)?m.dia:5)):5;
+    const gallery=area.tipoMedicion==='obrasExpuestas';
+    list.push({
+      id:`s2-${area.id}`,semana:2,fechaInicio:gallery?week2:addDays(week2,day),fechaFin:gallery?addDays(week2,5):addDays(week2,day),
+      areaArtisticaId:area.id,areaArtisticaNombre:area.nombre,emoji:area.emoji,nombre:area.nombre,modalidadIds:modes.map(m=>m.id),
+      descripcion:gallery?'Exposición / Galería de Procesos. La obra puede permanecer visible durante toda la semana.':`${area.nombre}: ${modes.map(m=>m.nombre).join(', ')||'modalidades por definir'}.`,dia:gallery?null:day
+    });
+  });
+  const occupied=new Map(); list.forEach(j=>{if(j.dia===null)return;const key=`${j.semana}:${j.fechaInicio}`;occupied.set(key,[...(occupied.get(key)||[]),j.id]);});
+  return list.map(j=>({...j,conflicto:(occupied.get(`${j.semana}:${j.fechaInicio}`)||[]).filter(id=>id!==j.id)}));
+}

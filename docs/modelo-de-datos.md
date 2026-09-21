@@ -304,6 +304,23 @@ Exportación/importación de eventos conserva el resto del formato y los nuevos 
 opcionales de participantes. La exportación global existente sigue siendo de eventos;
 no es una copia de seguridad de la configuración anual.
 
+### Jornadas programadas de cada ciclo
+
+`plannedJornadas()` convierte las fechas del ciclo en eventos operativos, sin crear
+participantes ni modificar las fechas manuales. Semana 1 genera una jornada por cada
+familia musical activa; Semana 2 genera una jornada por área artística no musical.
+Artes Plásticas puede ocupar toda la segunda semana. Cada documento usa el ID
+`muestra-artistica-{anio}-{ciclo}-{jornada}` y guarda:
+
+`sistemaAnual: { anio, cicloId, jornadaId, semana, areaArtisticaId, modalidadIds,
+conflictoDia, version: 3 }`.
+
+`jornadasGeneradas` en el documento del año conserva el mapa de eventos creados.
+El creador consulta en transacción el año, configuración y cada ID antes de escribir,
+por lo que repetir la acción no duplica ni sobrescribe jornadas. Un conflicto de día
+configurado se muestra antes de confirmar y queda marcado en el evento para que la
+coordinación lo resuelva manualmente.
+
 ### configuracion/muestrasProceso/historial/{id}
 
 `fecha`, `usuario`, `seccion`, `anterior`, `nuevo`, `comentario` opcional. Los cambios de configuración y año

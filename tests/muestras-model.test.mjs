@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaults,calendar,easter,iso,capacityRows,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,normalizeConfig,validate,validateDates,eventId} from '../src/muestras-model.js';
+import {defaults,calendar,easter,iso,capacityRows,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,normalizeConfig,plannedJornadas,jornadaEventId,validate,validateDates,eventId} from '../src/muestras-model.js';
 test('Las cuatro fechas base de 2026 coinciden exactamente',()=>{
  assert.deepEqual(calendar(2026,defaults()).map(x=>[x.fechaInicio,x.fechaFin]),[['2026-03-16','2026-03-21'],['2026-05-25','2026-05-30'],['2026-09-14','2026-09-19'],['2026-11-30','2026-12-05']]);
 });
@@ -47,4 +47,16 @@ test('Áreas artísticas: modalidades y métricas sin migrar registros antiguos'
  assert.equal(metrics.find(a=>a.id==='artes-plasticas').cantidad,2);
  assert.equal(metrics.find(a=>a.id==='artes-plasticas').expuestas,1);
  assert.doesNotThrow(()=>validate(c));
+});
+test('Jornadas programadas crean eventos por día y área sin adivinar conflictos',()=>{
+ const c=defaults(), cycle=calendar(2026,c)[2], jornadas=plannedJornadas(c,cycle);
+ assert.equal(jornadas.filter(j=>j.areaArtisticaId==='musica').length,6);
+ assert.equal(jornadas.find(j=>j.id==='s1-musica-piano').fechaInicio,'2026-09-18');
+ assert.equal(jornadas.find(j=>j.id==='s2-teatro').fechaInicio,'2026-09-25');
+ assert.equal(jornadas.find(j=>j.id==='s2-danza').fechaInicio,'2026-09-26');
+ const gallery=jornadas.find(j=>j.id==='s2-artes-plasticas');
+ assert.deepEqual([gallery.fechaInicio,gallery.fechaFin],['2026-09-21','2026-09-26']);
+ assert.equal(jornadaEventId(2027,'3','s1-musica-piano'),'muestra-artistica-2027-3-s1-musica-piano');
+ c.modalidadesArtisticas.filter(m=>m.areaArtisticaId==='teatro').forEach(m=>m.dia=5);
+ assert.ok(plannedJornadas(c,cycle).find(j=>j.id==='s2-teatro').conflicto.length>0);
 });

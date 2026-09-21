@@ -1,5 +1,5 @@
 import {db,doc,collection,onSnapshot,query,orderBy,limit,runTransaction,serverTimestamp} from './firebase-config.js';
-import {defaults,normalizeConfig,DAYS,calendar,activeFamilies,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,capacity,capacityRows,validate,validateDates,minutes,time,eventId} from './muestras-model.js';
+import {defaults,normalizeConfig,DAYS,calendar,activeFamilies,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,capacity,capacityRows,validate,validateDates,minutes,time,eventId,plannedJornadas,jornadaEventId} from './muestras-model.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clone=v=>JSON.parse(JSON.stringify(v));
 const labels={tituloSistema:'Título del sistema',descripcion:'Principio general',filosofia:'Filosofía de las muestras',agrupacion:'Agrupación técnica musical',ciclos:'Calendario',areasArtisticas:'Áreas artísticas',modalidadesArtisticas:'Modalidades de presentación',distribucion:'Semana de música',bloques:'Bloques horarios',pausa:'Pausa técnica',politica:'Política de presentación',capacidad:'Capacidad y ampliación',decisiones:'Decisiones y criterios'};
@@ -86,7 +86,7 @@ export function createAnnualSystem({root,user,toast,onChange,events}) {
       ${yearError?`<p role="alert">No se pudo leer este año: ${esc(yearError)}</p>`:!yearReady?'<p>Cargando calendario guardado…</p>':''}
       <div class="annual-cycles">${c.ciclos.map((cycle,i)=>{const d=dates.find(r=>r.id===cycle.id);return `<article class="annual-card"><span class="eyebrow">${['🌱','☀️','🌻','🎄'][i]||'📅'} Ciclo ${i+1} · ${year}</span><h4>${esc(cycle.nombre)}</h4><p class="badge info">${esc(cycle.etiqueta||'Muestra de proceso')}</p><p>${esc(ruleText(cycle))}</p>${dateDraft?`<label>Inicio<input type="date" data-date="${esc(cycle.id)}" data-key="fechaInicio" value="${d.fechaInicio}"></label><label>Fin<input type="date" data-date="${esc(cycle.id)}" data-key="fechaFin" value="${d.fechaFin}"></label>`:`<strong>${formatDate(d.fechaInicio)} → ${formatDate(d.fechaFin)}</strong><p class="field-hint">${(yearData?.fechasModificadas||[]).some(r=>r.id===cycle.id)?'Ajuste manual guardado':'Fecha calculada'}</p>`}</article>`;}).join('')}</div>
       ${dateDraft?`<label>Notas del año<textarea id="annualNotes">${esc(dateDraft.notes||'')}</textarea></label><label>Estado del calendario<select id="annualStatus">${['Borrador','Validado'].map(x=>`<option ${dateDraft.status===x?'selected':''}>${x}</option>`).join('')}</select></label>`:`<p>${esc(yearData?.estado||'Borrador')} · ${esc(yearData?.notas||'Sin notas del año')}</p>`}
-      <div class="actions">${button('generate','Crear calendario anual de muestras',!ready||!yearReady||!!dateDraft||!!edit||busy)}</div><p class="field-hint">Se muestra un resumen antes de crear. Los eventos ya generados conservan sus fechas y cambios operativos.</p></section>
+      <div class="actions">${button('generate','Crear 4 ciclos generales',!ready||!yearReady||!!dateDraft||!!edit||busy)}${button('generateJornadas','Crear jornadas programadas',!ready||!yearReady||!!dateDraft||!!edit||busy)}</div><p class="field-hint">Los ciclos generales sirven como referencia. Las jornadas programadas crean eventos concretos por día y área, listos para participantes, cronograma, rider y checklist. Ninguno sobrescribe eventos existentes.</p></section>
       <section class="panel"><div class="row-between"><h3>Áreas artísticas</h3>${button('areas','Editar áreas y modalidades',!ready||busy||!!dateDraft)}</div><div class="annual-metrics">${activeArtAreas(c).map(a=>`<article class="annual-card"><span class="annual-icon">${esc(a.emoji)}</span><h4>${esc(a.nombre)}</h4><p>${esc(a.descripcion)}</p><p class="field-hint">Semana ${a.semana} · ${esc(a.dias)} · ${esc(a.tipoMedicion)}</p></article>`).join('')}</div></section>
       <section class="panel"><div class="row-between"><h3>Semana de Música</h3>${button('distribution','Editar distribución musical',!ready||busy||!!dateDraft)}</div><div class="annual-week">${activeFamilies(c).map(f=>`<article class="annual-card"><span class="annual-icon">${esc(f.emoji)}</span><span class="eyebrow">${DAYS[f.dia]}</span><h4>${esc(f.nombre)}</h4><p>${esc(f.instrumentos)}</p><p class="field-hint">${esc(f.descripcion)}</p></article>`).join('')}</div><h4>Razón de la distribución musical</h4><p>${esc(c.agrupacion)}</p></section>
       <section class="panel"><h3>Semana 2 · Otras artes y ampliaciones</h3><p class="muted">La segunda semana se activa parcial o completamente según la demanda. Los días libres pueden recibir ampliaciones musicales; la coordinación resuelve los conflictos visibles de fecha.</p><div class="annual-week">${activeArtAreas(c).filter(a=>a.id!=='musica').map(a=>`<article class="annual-card"><span class="annual-icon">${esc(a.emoji)}</span><span class="eyebrow">${esc(a.dias)}</span><h4>${esc(a.nombre)}</h4><p>${activeModalities(c,a.id).map(m=>esc(m.nombre)).join(' · ')}</p></article>`).join('')}<article class="annual-card"><span class="annual-icon">🎵</span><h4>Ampliaciones musicales</h4><p>Usa los días no ocupados para conservar el día preferido de cada familia. El sistema advierte sobre la capacidad; no mueve fechas por su cuenta.</p></article></div></section>
@@ -153,6 +153,25 @@ export function createAnnualSystem({root,user,toast,onChange,events}) {
       return count;
     });toast(`${result} evento(s) creado(s). Los existentes se conservaron.`);
   }
+  async function generateJornadas(){
+    const y=year,dates=effective();validateDates(dates);
+    const plan=config.ciclos.flatMap((cycle,index)=>plannedJornadas(config,dates.find(d=>d.id===cycle.id)).map(j=>({...j,cycle,index,eventId:jornadaEventId(y,cycle.id,j.id)})));
+    const known=events(); const existing=j=>known.find(e=>e.id===j.eventId||(e.sistemaAnual?.anio===y&&e.sistemaAnual?.cicloId===j.cycle.id&&e.sistemaAnual?.jornadaId===j.id));
+    const pending=plan.filter(j=>!existing(j)); if(!pending.length){toast('Todas las jornadas programadas de este año ya existen.');return;}
+    const conflicts=pending.filter(j=>j.conflicto.length);
+    const summary=pending.map(j=>`${j.emoji} ${j.cycle.nombre} · ${j.nombre}\n${j.fechaInicio}${j.fechaFin!==j.fechaInicio?` → ${j.fechaFin}`:''}${j.conflicto.length?' · ⚠️ conflicto de día configurado':''}`).join('\n\n');
+    if(!confirm(`Se crearán ${pending.length} jornadas de ${y}:\n\n${summary}\n\n${conflicts.length?`Hay ${conflicts.length} jornada(s) con conflicto de día. Se crearán tal como están configuradas para que coordinación lo resuelva.\n\n`:''}Cada evento queda listo para agregar participantes, programación, rider y checklist. ¿Crear ahora?`))return;
+    const baseConfig=config.revision||0,baseYear=yearData?.revision||0;
+    const count=await runTransaction(db,async tx=>{
+      const [master,annual,...snaps]=await Promise.all([tx.get(ref),tx.get(yearRef(y)),...plan.map(j=>tx.get(doc(db,'eventos',j.eventId)))]);
+      if(revision(master)!==baseConfig||revision(annual)!==baseYear)throw Error('Las reglas o fechas cambiaron. Revisa el calendario antes de crear jornadas.');
+      const generated={...(annual.data()?.jornadasGeneradas||{})};let made=0;
+      plan.forEach((j,index)=>{if(snaps[index].exists()||existing(j)||generated[`${j.cycle.id}:${j.id}`])return;
+        tx.set(doc(db,'eventos',j.eventId),{titulo:`${j.emoji} ${j.cycle.etiqueta||'Muestra Artística'} · ${j.nombre}`,tipo:'Muestra de proceso',estado:'Planeación',prioridad:'Media',fechaInicio:j.fechaInicio,fechaFin:j.fechaFin,responsable:'Coordinación',publico:'Estudiantes y acudientes',objetivo:`Organizar la jornada de ${j.areaArtisticaNombre}: ${j.nombre}. Agregar participantes, programación, necesidades técnicas y comunicación.`,notas:`Generado desde el Sistema Anual de Muestras Artísticas. ${j.descripcion}`,sistemaAnual:{anio:y,cicloId:j.cycle.id,jornadaId:j.id,semana:j.semana,areaArtisticaId:j.areaArtisticaId,modalidadIds:j.modalidadIds,conflictoDia:j.conflicto.length>0,version:3},createdAt:serverTimestamp(),createdBy:user().email,...stamp(user())});generated[`${j.cycle.id}:${j.id}`]=j.eventId;made++;});
+      tx.set(yearRef(y),{jornadasGeneradas:generated,fechasCalculadas:calendar(y,config),revision:baseYear+1,...stamp(user())},{merge:true});
+      if(made)log(tx,`Jornadas generadas ${y}`,'',`${made} jornada(s) creadas${conflicts.length?`; ${conflicts.length} con conflicto de día configurado`:''}`);return made;
+    });toast(`${count} jornada(s) creada(s). Ya puedes organizar cada una por separado.`);
+  }
   async function action(name){
     if(busy)return;
     operationError="";
@@ -170,8 +189,8 @@ export function createAnnualSystem({root,user,toast,onChange,events}) {
     else if(name==='dates')beginDates();
     else if(name==='calculate'||name==='restoreDates'){if(!dateDraft&&!yearData?.fechasModificadas?.length||confirm('¿Reemplazar los ajustes de fechas en el borrador por el cálculo actual? Guarda para confirmar.'))beginDates(true);}
     else if(name==='cancelDates')dateDraft=null;
-    else if(['saveConfig','saveDates','generate'].includes(name)){
-      busy=true;render();try{if(name==='saveConfig')await saveConfig();else if(name==='saveDates')await saveDates();else await generate();}catch(e){operationError=e.message;toast(e.message);const box=root.querySelector('#annualEditError');if(box)box.textContent=e.message;}finally{busy=false;}
+    else if(['saveConfig','saveDates','generate','generateJornadas'].includes(name)){
+      busy=true;render();try{if(name==='saveConfig')await saveConfig();else if(name==='saveDates')await saveDates();else if(name==='generateJornadas')await generateJornadas();else await generate();}catch(e){operationError=e.message;toast(e.message);const box=root.querySelector('#annualEditError');if(box)box.textContent=e.message;}finally{busy=false;}
     }
     const opened=[...root.querySelectorAll('details[open]')].map((d)=>[...root.querySelectorAll('details')].indexOf(d));render();opened.forEach(i=>{const d=root.querySelectorAll('details')[i];if(d)d.open=true;});
   }
