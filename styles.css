@@ -461,6 +461,9 @@ td { font-size: .88rem; line-height: 1.45; }
   gap: 6px;
   background: #fcfcfe;
 }
+.picker-cobertura { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0 2px; }
+.picker-cobertura .field-hint { margin: 0; flex: 1 1 260px; }
+.picker-cobertura .btn { margin-left: auto; }
 .picker-row {
   display: flex;
   align-items: center;

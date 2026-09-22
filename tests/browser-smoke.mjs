@@ -10,7 +10,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
 page.setDefaultTimeout(8000);
 page.on('pageerror',e=>{errors.push(e.message);console.log('PAGE ERROR',e.stack)});page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE',m.text())});page.on('dialog',d=>d.accept());
 await page.route('**/src/firebase-config.js',r=>r.fulfill({contentType:'text/javascript',path:fileURLToPath(new URL('./firebase-mock.js',import.meta.url))}));
-await page.route('**/src/rip-config.js',r=>r.fulfill({contentType:'text/javascript',body:`export const ripSignIn=async()=>{};export const ripSignOut=async()=>{};export const ripRestoreSession=async()=>null;export const ripCurrentUser=()=>null;export const ripFetchEstudiantes=async()=>[];export const ripNorm=x=>String(x||'').toLowerCase();export const RIP_ALLOWED_EMAILS=[];`}));
+await page.route('**/src/rip-config.js',r=>r.fulfill({contentType:'text/javascript',body:`export const ripSignIn=async()=>{};export const ripSignOut=async()=>{};export const ripRestoreSession=async()=>({email:'prueba@musicala.co'});export const ripCurrentUser=()=>({email:'prueba@musicala.co'});export const ripFetchEstudiantes=async()=>[{studentId:'ana',nombre:'Ana Activa',claveNombre:'ana activa',nivel:'activo',etiqueta:'Activo',ultimaClase:'2026-09-01'},{studentId:'bruno',nombre:'Bruno Activo',claveNombre:'bruno activo',nivel:'activo',etiqueta:'Activo',ultimaClase:'2026-09-01'},{studentId:'camila',nombre:'Camila Inactiva',claveNombre:'camila inactiva',nivel:'inactivo',etiqueta:'Inactivo',ultimaClase:'2026-01-01'}];export const ripNorm=x=>String(x||'').toLowerCase();export const RIP_ALLOWED_EMAILS=[];`}));
 try{
  await page.goto(process.env.TEST_URL || 'http://127.0.0.1:4173');
  await page.waitForFunction(()=>window.testStore); await page.locator('#loginBtn').click();await page.locator('#annualBtn').click();
@@ -56,6 +56,7 @@ try{
  await page.evaluate(()=>window.testStore.set('eventos/muestra-proceso-2027-1/muestras/old',{estudianteGrupo:'Estudiante antiguo',area:'Música',estado:'Pendiente'}));
  await page.locator('[data-event-id="muestra-proceso-2027-1"]').click();await page.locator('[data-tab="muestras"]').click();
  await page.getByText('Estudiante antiguo',{exact:true}).waitFor();await page.getByText('1 presentación(es) sin familia activa asignada.',{exact:false}).waitFor();
+ await page.locator('[data-action="pick-students"]').click();await page.getByText('Ana Activa',{exact:true}).waitFor();assert.equal(await page.locator('.picker-row').count(),2);await page.locator('#pickerCobertura').getByText('2 pendientes',{exact:false}).waitFor();await page.locator('#pickerMarcarPendientes').click();await page.locator('#pickerCobertura').getByText('0 pendientes',{exact:false}).waitFor();assert.equal(await page.locator('[data-pick]:checked').count(),2);await page.locator('[data-close]').click();
  await page.locator('[data-edit-child="muestras:old"]').click();
  await page.locator('[name="areaArtisticaId"]').selectOption('musica');await page.locator('[name="modalidadPresentacionId"]').selectOption('piano');await page.locator('#modalForm button[type="submit"]').click();
  await page.waitForFunction(()=>window.testStore.get('eventos/muestra-proceso-2027-1/muestras/old')?.familiaInstrumentalId==='piano');

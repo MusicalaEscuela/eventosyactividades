@@ -633,23 +633,32 @@ function candidatosPicker() {
   const { texto, soloActivos } = state.picker;
   const busqueda = ripNorm(texto);
   return state.ripEstudiantes
-    .filter(e => !soloActivos || e.nivel === "activo" || e.nivel === "revisar")
+    .filter(e => !soloActivos || e.nivel === "activo")
     .filter(e => !busqueda || ripNorm(e.nombre).includes(busqueda));
 }
 
-const PICKER_LIMITE = 60;
+function resumenPicker() {
+  const inscritas = clavesInscritas();
+  const candidatas = candidatosPicker();
+  const yaInscritas = candidatas.filter(est => {
+    const clave = est.studentId || est.claveNombre;
+    return inscritas.has(clave) || inscritas.has(est.claveNombre);
+  });
+  const seleccionadas = candidatas.filter(est => state.picker.seleccion.has(est.studentId || est.claveNombre));
+  return { total: candidatas.length, yaInscritas: yaInscritas.length, seleccionadas: seleccionadas.length,
+    pendientes: candidatas.filter(est => { const clave = est.studentId || est.claveNombre; return !inscritas.has(clave) && !inscritas.has(est.claveNombre) && !state.picker.seleccion.has(clave); }) };
+}
 
 function renderPickerLista() {
   const inscritas = clavesInscritas();
   const candidatos = candidatosPicker();
-  const visibles = candidatos.slice(0, PICKER_LIMITE);
 
   if (!candidatos.length) {
     return `<div class="empty-state" style="padding:26px;"><p>Ningún estudiante coincide con la búsqueda.</p></div>`;
   }
 
   return `
-    ${visibles.map(est => {
+    ${candidatos.map(est => {
       const clave = est.studentId || est.claveNombre;
       const yaEsta = inscritas.has(clave) || inscritas.has(est.claveNombre);
       const previas = (state.participaciones.get(est.studentId) || state.participaciones.get(est.claveNombre) || []).length;
@@ -663,10 +672,7 @@ function renderPickerLista() {
             ? `<span class="badge info">Ya está en el evento</span>`
             : `<span class="badge ${previas ? "neutral" : "off"}">${previas ? `${previas} presentación${previas === 1 ? "" : "es"}` : "Nunca se ha presentado"}</span>`}
         </label>`;
-    }).join("")}
-    ${candidatos.length > PICKER_LIMITE
-      ? `<p class="field-hint" style="margin-top:10px;">Mostrando ${PICKER_LIMITE} de ${candidatos.length}. Afina la búsqueda para ver el resto — lo que ya marcaste se conserva.</p>`
-      : ""}`;
+    }).join("")}`;
 }
 
 function actualizarPickerPie() {
@@ -684,6 +690,14 @@ function actualizarPickerPie() {
       ? `Crear ensamble de ${n}`
       : `Agregar ${n || ""} participante${n === 1 ? "" : "s"}`.replace("  ", " ");
   }
+  const cobertura = $("#pickerCobertura");
+  const marcar = $("#pickerMarcarPendientes");
+  if (cobertura && marcar) {
+    const resumen = resumenPicker();
+    cobertura.textContent = `${resumen.yaInscritas} ya están en el evento · ${resumen.seleccionadas} marcados para agregar · ${resumen.pendientes.length} pendientes`;
+    marcar.disabled = resumen.pendientes.length === 0;
+    marcar.textContent = resumen.pendientes.length ? `Marcar ${resumen.pendientes.length} pendiente${resumen.pendientes.length === 1 ? "" : "s"}` : "Todos revisados";
+  }
 }
 
 function openStudentPicker(modo = "individual") {
@@ -698,7 +712,7 @@ function openStudentPicker(modo = "individual") {
     <h3>${modo === "ensamble" ? "Crear ensamble" : "Agregar participantes"}</h3>
     <p class="muted">${modo === "ensamble"
       ? "Elige a los integrantes del ensamble. Se crea <strong>una sola presentación</strong> y cuenta para todos ellos."
-      : "Marca a los estudiantes que se presentan. Se crea <strong>una presentación por cada uno</strong>."}</p>
+      : "La lista empieza con todos los <strong>estudiantes activos</strong>. Revisa los pendientes antes de guardar; se crea <strong>una presentación por cada uno</strong>."}</p>
 
     ${modo === "ensamble" ? `
       <label>Nombre del ensamble
@@ -710,7 +724,7 @@ function openStudentPicker(modo = "individual") {
         <input type="search" id="pickerBuscar" placeholder="Nombre..." autocomplete="off" />
       </label>
       <label class="check-card" style="align-self:end;margin-bottom:2px;">
-        <input type="checkbox" id="pickerActivos" checked /> Solo activos
+        <input type="checkbox" id="pickerActivos" checked /> Solo estudiantes activos
       </label>
     </div>
 
@@ -719,6 +733,7 @@ function openStudentPicker(modo = "individual") {
       <div id="pickerModalidad">${annualSystem.modalityField({}, "musica")}</div>
     </div>
     <div class="picker-lista" id="pickerLista">${renderPickerLista()}</div>
+    <div class="picker-cobertura"><strong>Revisión del evento</strong><span class="field-hint" id="pickerCobertura"></span><button type="button" class="btn btn-light" id="pickerMarcarPendientes">Marcar pendientes</button></div>
     <p class="field-hint" id="pickerPie">Ninguno seleccionado todavía</p>
   `, null);
 
@@ -728,7 +743,7 @@ function openStudentPicker(modo = "individual") {
   actualizarPickerPie();
 
   const lista = $("#pickerLista");
-  const repintar = () => { lista.innerHTML = renderPickerLista(); };
+  const repintar = () => { lista.innerHTML = renderPickerLista(); actualizarPickerPie(); };
 
   $("#pickerBuscar").addEventListener("input", event => {
     state.picker.texto = event.target.value;
@@ -738,6 +753,7 @@ function openStudentPicker(modo = "individual") {
     state.picker.soloActivos = event.target.checked;
     repintar();
   });
+  $("#pickerMarcarPendientes").addEventListener("click", () => { resumenPicker().pendientes.forEach(est => state.picker.seleccion.add(est.studentId || est.claveNombre)); repintar(); });
   modalForm.querySelector('[name="areaArtisticaId"]').addEventListener("change", event => {
     modalForm.querySelector("#pickerModalidad").innerHTML = annualSystem.modalityField({}, event.target.value);
   });
@@ -746,7 +762,7 @@ function openStudentPicker(modo = "individual") {
     if (!check) return;
     if (check.checked) state.picker.seleccion.add(check.dataset.pick);
     else state.picker.seleccion.delete(check.dataset.pick);
-    actualizarPickerPie();
+    repintar();
   });
 
   modalForm.onsubmit = async event => {
@@ -2168,6 +2184,7 @@ function syncDatalists() {
   const estudiantes = $("#estudiantesDisponibles");
   if (estudiantes) {
     estudiantes.innerHTML = state.ripEstudiantes
+      .filter(e => e.nivel === "activo")
       .map(e => `<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.etiqueta)}</option>`)
       .join("");
   }

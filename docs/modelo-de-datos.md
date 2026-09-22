@@ -53,6 +53,10 @@ Detalles importantes:
   autorizada, la pestaña de estudiantes muestra el error y **el resto de la app
   sigue funcionando**.
 
+### Selección para eventos
+
+Al usar **Agregar estudiantes** o crear un ensamble, la lista parte de todos los estudiantes cuyo estado calculado en RIP es `Activo`, ordenados alfabéticamente. La franja **Revisión del evento** muestra cuántos ya están inscritos, cuántos se van a agregar y cuántos siguen pendientes; **Marcar pendientes** selecciona todos los que falten en la lista visible. La búsqueda no descarta los que ya fueron marcados. Se puede desactivar el filtro para consultar el padrón completo, pero los estudiantes en pausa, inactivos y exestudiantes no se sugieren en el formulario individual del evento.
+
 ### ¿Quién ya se presentó?
 
 Se responde dentro de este proyecto con una consulta `collectionGroup("muestras")`
