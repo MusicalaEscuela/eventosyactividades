@@ -183,6 +183,9 @@ export async function ripFetchEstudiantes() {
       studentId: studentId || claveNombre,
       nombre,
       claveNombre,
+      area: String(data.area || data.arte || data.disciplina || "").trim(),
+      instrumento: String(data.instrumento || data.instrument || "").trim(),
+      programa: String(data.programa || data.program || data.course || "").trim(),
       clasificacion,
       ...clasificarEstado(clasificacion),
       ultimaClase: String(computed.ultimaClase || "").trim()

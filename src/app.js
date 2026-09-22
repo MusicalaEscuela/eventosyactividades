@@ -311,6 +311,7 @@ function setModal(content, submitLabel = "Guardar") {
   const closeLabel = submitLabel ? "Cancelar" : "Cerrar";
   modalForm.onsubmit = null;
   modalForm.onclick = null;
+  modalForm.onchange = null;
   modalForm.innerHTML = `${content}<div class="modal-actions"><button type="button" class="btn btn-light" data-close>${closeLabel}</button>${submit}</div>`;
   modalForm.querySelector("[data-close]").addEventListener("click", () => modal.close());
   if (!modal.open) modal.showModal();
@@ -629,13 +630,21 @@ function clavesInscritas() {
   return claves;
 }
 
+const FILTROS_FAMILIA_MUSICAL = { bateria:["bateria","percusion","drums"], violin:["violin","viola","cello","violoncello","contrabajo","cuerdas frotadas"], canto:["canto","voz","vocal","cantar"], guitarra:["guitarra","bajo","ukelele","cuerdas pulsadas"], piano:["piano","teclado","teclas"], ensambles:["ensamble","banda","grupo musical","orquesta"] };
+function perfilArtistico(estudiante) { return ripNorm([estudiante.area, estudiante.instrumento, estudiante.programa].filter(Boolean).join(" · ")); }
+function areaArtisticaEstudiante(estudiante) { const perfil=perfilArtistico(estudiante); if(perfil.includes("danza"))return "danza";if(perfil.includes("teatro"))return "teatro";if(perfil.includes("plast")||perfil.includes("visual"))return "artes-plasticas";if(perfil.includes("musica")||estudiante.instrumento||estudiante.programa)return "musica";return ""; }
+function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(areaArtisticaEstudiante(estudiante)!==areaId)return false;if(areaId!=="musica"||!modalidadId)return true;return (FILTROS_FAMILIA_MUSICAL[modalidadId]||[modalidadId]).some(termino=>perfilArtistico(estudiante).includes(ripNorm(termino))); }
+
 function candidatosPicker() {
-  const { texto, soloActivos } = state.picker;
+  const { texto, soloActivos, areaId, modalidadId } = state.picker;
   const busqueda = ripNorm(texto);
   return state.ripEstudiantes
     .filter(e => !soloActivos || e.nivel === "activo")
+    .filter(e => coincideConFiltroArtistico(e, areaId, modalidadId))
     .filter(e => !busqueda || ripNorm(e.nombre).includes(busqueda));
 }
+
+function estudiantesSinPerfilParaFiltro() { const {soloActivos,areaId}=state.picker;if(!areaId)return 0;return state.ripEstudiantes.filter(e=>(!soloActivos||e.nivel==="activo")&&!areaArtisticaEstudiante(e)).length; }
 
 function resumenPicker() {
   const inscritas = clavesInscritas();
@@ -668,6 +677,7 @@ function renderPickerLista() {
           <input type="checkbox" data-pick="${escapeHtml(clave)}" ${marcado ? "checked" : ""} ${yaEsta ? "disabled" : ""} />
           <span class="picker-nombre">${escapeHtml(est.nombre)}</span>
           <span class="badge ${NIVEL_BADGE[est.nivel]}">${escapeHtml(est.etiqueta)}</span>
+          ${perfilArtistico(est) ? `<span class="badge info">${escapeHtml([est.area, est.instrumento, est.programa].filter(Boolean).join(" · "))}</span>` : ""}
           ${yaEsta
             ? `<span class="badge info">Ya está en el evento</span>`
             : `<span class="badge ${previas ? "neutral" : "off"}">${previas ? `${previas} presentación${previas === 1 ? "" : "es"}` : "Nunca se ha presentado"}</span>`}
@@ -706,7 +716,7 @@ function openStudentPicker(modo = "individual") {
     mostrarVista("estudiantes");
     return;
   }
-  state.picker = { modo, seleccion: new Set(), texto: "", soloActivos: true };
+  state.picker = { modo, seleccion: new Set(), texto: "", soloActivos: true, areaId: "musica", modalidadId: "" };
 
   setModal(`
     <h3>${modo === "ensamble" ? "Crear ensamble" : "Agregar participantes"}</h3>
@@ -732,6 +742,7 @@ function openStudentPicker(modo = "individual") {
       ${annualSystem.areaField({ areaArtisticaId: "musica" })}
       <div id="pickerModalidad">${annualSystem.modalityField({}, "musica")}</div>
     </div>
+    <p class="field-hint" id="pickerFiltroInfo"></p>
     <div class="picker-lista" id="pickerLista">${renderPickerLista()}</div>
     <div class="picker-cobertura"><strong>Revisión del evento</strong><span class="field-hint" id="pickerCobertura"></span><button type="button" class="btn btn-light" id="pickerMarcarPendientes">Marcar pendientes</button></div>
     <p class="field-hint" id="pickerPie">Ninguno seleccionado todavía</p>
@@ -740,10 +751,11 @@ function openStudentPicker(modo = "individual") {
   // Pie de acciones propio (el genérico no sirve: el botón cambia de texto).
   modalForm.querySelector(".modal-actions").insertAdjacentHTML("beforeend",
     `<button type="submit" class="btn btn-primary" id="pickerGuardar" disabled>Agregar</button>`);
+  state.picker.modalidadId = modalForm.querySelector('[name="modalidadPresentacionId"]').value;
   actualizarPickerPie();
 
   const lista = $("#pickerLista");
-  const repintar = () => { lista.innerHTML = renderPickerLista(); actualizarPickerPie(); };
+  const repintar = () => { lista.innerHTML = renderPickerLista(); const sinPerfil=estudiantesSinPerfilParaFiltro(),filtroInfo=$("#pickerFiltroInfo");if(filtroInfo)filtroInfo.textContent=sinPerfil?`${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} sin área o instrumento registrado en RIP no aparece${sinPerfil===1?"":"n"} en este filtro.`:"El padrón está filtrado por el área e instrumento seleccionados.";actualizarPickerPie(); };
 
   $("#pickerBuscar").addEventListener("input", event => {
     state.picker.texto = event.target.value;
@@ -755,8 +767,12 @@ function openStudentPicker(modo = "individual") {
   });
   $("#pickerMarcarPendientes").addEventListener("click", () => { resumenPicker().pendientes.forEach(est => state.picker.seleccion.add(est.studentId || est.claveNombre)); repintar(); });
   modalForm.querySelector('[name="areaArtisticaId"]').addEventListener("change", event => {
+    state.picker.areaId = event.target.value;
     modalForm.querySelector("#pickerModalidad").innerHTML = annualSystem.modalityField({}, event.target.value);
+    state.picker.modalidadId = modalForm.querySelector('[name="modalidadPresentacionId"]').value;
+    repintar();
   });
+  modalForm.onchange = event => { if(event.target.matches('[name="modalidadPresentacionId"]')) { state.picker.modalidadId=event.target.value;repintar(); } };
   lista.addEventListener("change", event => {
     const check = event.target.closest("[data-pick]");
     if (!check) return;
@@ -764,6 +780,7 @@ function openStudentPicker(modo = "individual") {
     else state.picker.seleccion.delete(check.dataset.pick);
     repintar();
   });
+  repintar();
 
   modalForm.onsubmit = async event => {
     event.preventDefault();
