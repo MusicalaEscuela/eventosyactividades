@@ -67,6 +67,7 @@ try{
  await page.locator('[name="estudianteGrupo"]').fill('Grupo Danza');await page.locator('#modalForm button[type="submit"]').click();
  await page.waitForFunction(()=>window.testStore.all().some(([p,d])=>p.includes('/muestras/')&&d.areaArtisticaId==='danza'&&d.modalidadPresentacionId==='danza-coreografia'));
  await page.locator('[data-vista="tablero"]').click();await page.getByText('Estudiante antiguo',{exact:true}).waitFor();
+ await page.locator('[data-action="mark-not-realized"]').click();await page.waitForFunction(()=>window.testStore.get('eventos/muestra-proceso-2027-1')?.estado==='No realizado');await page.locator('#historyBtn').click();await page.locator('#eventList').getByText('No realizado',{exact:true}).waitFor();
  await page.locator('#logoutBtn').click();await page.locator('#loginBtn').waitFor({state:'visible'});
  assert.deepEqual(errors,[]);
  console.log('PASS: login simulado, documento ausente, persistencia y recarga, aislamiento anual, generación repetida, conflicto de edición, antiguo participante, familia, Kanban, móvil sin desborde, cierre de sesión; 0 errores JS.');

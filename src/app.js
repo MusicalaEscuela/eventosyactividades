@@ -71,6 +71,7 @@ const state = {
   ripEstudiantes: [],
   participaciones: new Map(),     // clave de estudiante → presentaciones
   filtroEstudiantes: { texto: "", nivel: "", presentado: "" },
+  mostrarHistorialEventos: false,
   unsubParticipaciones: null,
   lugares: [],
   personas: [],
@@ -97,6 +98,7 @@ const STATUS_CLASS = {
   "En riesgo": "danger",
   "Listo": "success",
   "Realizado": "success",
+  "No realizado": "danger",
   "Archivado": "neutral",
   "Pendiente": "neutral",
   "Confirmado": "success",
@@ -167,7 +169,7 @@ const SEED_EVENT = {
 
 const FIELD_OPTIONS = {
   tipo: ["Evento", "Muestra de proceso", "Musicala Fest", "Open Day", "Ensayo", "Actividad interna"],
-  estadoEvento: ["Planeación", "En curso", "En riesgo", "Listo", "Realizado", "Archivado"],
+  estadoEvento: ["Planeación", "En curso", "En riesgo", "Listo", "Realizado", "No realizado", "Archivado"],
   estadoItem: ["Pendiente", "En curso", "En riesgo", "Listo", "Confirmado", "Realizado", "Cancelado", "Bloqueado"],
   prioridad: ["Baja", "Media", "Alta", "Crítica"],
   areas: ["General", "Música", "Danza", "Teatro", "Artes plásticas", "Administrativo", "Comercial", "Producción", "Técnico", "Marketing", "Logística"]
@@ -972,10 +974,15 @@ function applyFilters() {
   const status = $("#statusFilter").value;
   state.filteredEventos = state.eventos.filter(evento => {
     const haystack = `${evento.titulo || ""} ${evento.lugar || ""} ${evento.responsable || ""} ${evento.objetivo || ""}`.toLowerCase();
-    return (!search || haystack.includes(search)) && (!type || evento.tipo === type) && (!status || evento.estado === status);
+    const cerrado = ["Realizado", "No realizado", "Archivado"].includes(evento.estado);
+    const verCerrados = state.mostrarHistorialEventos || Boolean(status);
+    return (!search || haystack.includes(search)) && (!type || evento.tipo === type) && (!status || evento.estado === status) && (verCerrados || !cerrado);
   });
+  actualizarBotonHistorial();
   renderEventList();
 }
+
+function actualizarBotonHistorial() { const boton=$("#historyBtn");if(!boton)return;boton.classList.toggle("active-view",state.mostrarHistorialEventos);boton.textContent=state.mostrarHistorialEventos?"🗂️ Ocultar historial de eventos":"🗂️ Ver historial de eventos"; }
 
 function renderEventList() {
   if (!state.filteredEventos.length) {
@@ -1000,7 +1007,7 @@ function renderEventList() {
 
 function renderKpis() {
   const eventos = state.eventos;
-  const active = eventos.filter(e => e.estado !== "Archivado").length;
+  const active = eventos.filter(e => !["Archivado", "Realizado", "No realizado"].includes(e.estado)).length;
   const risk = eventos.filter(e => e.estado === "En riesgo").length;
   const ready = eventos.filter(e => ["Listo", "Realizado"].includes(e.estado)).length;
   const muestras = eventos.filter(e => e.tipo === "Muestra de proceso").length;
@@ -1076,6 +1083,7 @@ function renderDetail() {
           </div>
           <p class="muted">${escapeHtml(evento.objetivo || "Sin objetivo todavía.")}</p>
           <div class="actions">
+            ${!["Realizado", "No realizado", "Archivado"].includes(evento.estado) ? `<button class="btn btn-light" data-action="mark-realized">✓ Marcar realizado</button><button class="btn btn-light" data-action="mark-not-realized">⊘ No se realizó</button>` : `<span class="field-hint">Este evento está en el historial. Puedes cambiar su estado desde Editar evento si fue necesario corregirlo.</span>`}
             <button class="btn btn-light" data-action="edit-event">Editar evento</button>
             <button class="btn btn-light" data-action="export-event">Exportar evento</button>
             <button class="btn btn-light" data-action="import-event">Importar JSON</button>
@@ -1355,6 +1363,8 @@ function handleAction(action) {
   if (action === "edit-event") openEventDialog(state.selectedEvent);
   if (action === "export-event") exportSelectedEvent();
   if (action === "import-event") importFile.click();
+  if (action === "mark-realized") cerrarEvento("realizado");
+  if (action === "mark-not-realized") cerrarEvento("no-realizado");
   if (action === "archive-event") archiveEvent();
   if (action === "delete-event") deleteEvent();
   if (action === "add-child") openChildDialog(state.tab);
@@ -1768,6 +1778,8 @@ async function archiveEvent() {
   });
   toast("Evento archivado.");
 }
+
+async function cerrarEvento(resultado) { if(!state.selectedEventId||!state.selectedEvent)return;const realizado=resultado==="realizado",mensaje=realizado?"¿Marcar este evento como realizado? Se conservará en el historial y dejará de aparecer en la lista diaria.":"¿Marcar este evento como no realizado? Se conservará en el historial con sus participantes, cronograma y demás información.";if(!confirm(mensaje))return;try{await updateDoc(doc(db,COLLECTION,state.selectedEventId),{estado:realizado?"Realizado":"No realizado",cierre:{resultado,cerradoAt:serverTimestamp(),cerradoBy:state.user.email},updatedAt:serverTimestamp(),updatedBy:state.user.email});state.mostrarHistorialEventos=false;applyFilters();toast(realizado?"Evento marcado como realizado y enviado al historial.":"Evento marcado como no realizado y enviado al historial.");}catch(error){console.error(error);toast("No se pudo cerrar el evento.");}}
 
 async function deleteEvent() {
   if (!state.selectedEventId || !state.selectedEvent) return;
@@ -2338,6 +2350,7 @@ function attachGlobalEvents() {
   $("#newEventBtn").addEventListener("click", () => openEventDialog());
   $("#placesBtn").addEventListener("click", openPlacesDialog);
   $("#peopleBtn").addEventListener("click", openPeopleDialog);
+  $("#historyBtn").addEventListener("click", () => { state.mostrarHistorialEventos=!state.mostrarHistorialEventos;applyFilters(); });
   $("#studentsBtn").addEventListener("click", () => {
     mostrarVista(state.vistaPrincipal === "estudiantes" ? "eventos" : "estudiantes");
   });

@@ -71,7 +71,8 @@ Campos principales:
 
 - `titulo`: nombre del evento o muestra.
 - `tipo`: Evento, Muestra de proceso, Musicala Fest, Open Day, Ensayo, Actividad interna.
-- `estado`: Planeación, En curso, En riesgo, Listo, Realizado, Archivado.
+- `estado`: Planeación, En curso, En riesgo, Listo, Realizado, No realizado, Archivado.
+- `cierre`: opcional al cerrar desde la interfaz: `{resultado: realizado | no-realizado, cerradoAt, cerradoBy}`. Los eventos cerrados salen de la lista diaria y quedan disponibles con **Ver historial de eventos**; no se borran ni se alteran sus subcolecciones.
 - `prioridad`: Baja, Media, Alta, Crítica.
 - `responsable`: persona o equipo encargado.
 - `fechaInicio`, `fechaFin`: formato YYYY-MM-DD.
