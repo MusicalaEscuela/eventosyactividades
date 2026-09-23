@@ -640,13 +640,16 @@ function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(areaArti
 function candidatosPicker() {
   const { texto, soloActivos, areaId, modalidadId } = state.picker;
   const busqueda = ripNorm(texto);
-  return state.ripEstudiantes
+  const base = state.ripEstudiantes
     .filter(e => !soloActivos || e.nivel === "activo")
-    .filter(e => coincideConFiltroArtistico(e, areaId, modalidadId))
     .filter(e => !busqueda || ripNorm(e.nombre).includes(busqueda));
+  const coincidencias = base.filter(e => coincideConFiltroArtistico(e, areaId, modalidadId));
+  return coincidencias.length ? coincidencias : base.filter(e => !areaArtisticaEstudiante(e));
 }
 
 function estudiantesSinPerfilParaFiltro() { const {soloActivos,areaId}=state.picker;if(!areaId)return 0;return state.ripEstudiantes.filter(e=>(!soloActivos||e.nivel==="activo")&&!areaArtisticaEstudiante(e)).length; }
+
+function pickerMuestraPerfilesPorConfirmar() { const {texto,soloActivos,areaId,modalidadId}=state.picker,busqueda=ripNorm(texto),base=state.ripEstudiantes.filter(e=>!soloActivos||e.nivel==="activo").filter(e=>!busqueda||ripNorm(e.nombre).includes(busqueda));return !base.some(e=>coincideConFiltroArtistico(e,areaId,modalidadId))&&base.some(e=>!areaArtisticaEstudiante(e)); }
 
 function resumenPicker() {
   const inscritas = clavesInscritas();
@@ -679,7 +682,7 @@ function renderPickerLista() {
           <input type="checkbox" data-pick="${escapeHtml(clave)}" ${marcado ? "checked" : ""} ${yaEsta ? "disabled" : ""} />
           <span class="picker-nombre">${escapeHtml(est.nombre)}</span>
           <span class="badge ${NIVEL_BADGE[est.nivel]}">${escapeHtml(est.etiqueta)}</span>
-          ${perfilArtistico(est) ? `<span class="badge info">${escapeHtml([est.area, est.instrumento, est.programa].filter(Boolean).join(" · "))}</span>` : ""}
+          ${perfilArtistico(est)?`<span class="badge info">${escapeHtml([est.area,est.instrumento,est.programa].filter(Boolean).join(" · "))}</span>`:`<span class="badge warning">Por confirmar en RIP</span>`}
           ${yaEsta
             ? `<span class="badge info">Ya está en el evento</span>`
             : `<span class="badge ${previas ? "neutral" : "off"}">${previas ? `${previas} presentación${previas === 1 ? "" : "es"}` : "Nunca se ha presentado"}</span>`}
@@ -757,7 +760,7 @@ function openStudentPicker(modo = "individual") {
   actualizarPickerPie();
 
   const lista = $("#pickerLista");
-  const repintar = () => { lista.innerHTML = renderPickerLista(); const sinPerfil=estudiantesSinPerfilParaFiltro(),filtroInfo=$("#pickerFiltroInfo");if(filtroInfo)filtroInfo.textContent=sinPerfil?`${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} sin área o instrumento registrado en RIP no aparece${sinPerfil===1?"":"n"} en este filtro.`:"El padrón está filtrado por el área e instrumento seleccionados.";actualizarPickerPie(); };
+  const repintar = () => { lista.innerHTML=renderPickerLista();const sinPerfil=estudiantesSinPerfilParaFiltro(),filtroInfo=$("#pickerFiltroInfo");if(filtroInfo)filtroInfo.textContent=sinPerfil?(pickerMuestraPerfilesPorConfirmar()?`RIP no tiene coincidencias clasificadas para este filtro. Se muestran ${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} por confirmar para que no quede nadie por fuera.`:`${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} sin área o instrumento registrado en RIP no coincide${sinPerfil===1?"":"n"} con este filtro.`):"El padrón está filtrado por el área e instrumento seleccionados.";actualizarPickerPie(); };
 
   $("#pickerBuscar").addEventListener("input", event => {
     state.picker.texto = event.target.value;
