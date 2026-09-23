@@ -57,7 +57,7 @@ Detalles importantes:
 
 Al usar **Agregar estudiantes** o crear un ensamble, la lista parte de todos los estudiantes cuyo estado calculado en RIP es `Activo`, ordenados alfabéticamente. La franja **Revisión del evento** muestra cuántos ya están inscritos, cuántos se van a agregar y cuántos siguen pendientes; **Marcar pendientes** selecciona todos los que falten en la lista visible. La búsqueda no descarta los que ya fueron marcados. Se puede desactivar el filtro para consultar el padrón completo, pero los estudiantes en pausa, inactivos y exestudiantes no se sugieren en el formulario individual del evento.
 
-El filtro de área usa los campos de solo lectura de RIP `area`, `instrumento` (`instrument` en registros antiguos) y `programa`. Al elegir Música y una familia instrumental, el padrón se limita a las coincidencias del instrumento; Danza, Teatro y Artes Plásticas se filtran por su área. La interfaz avisa cuántos activos no tienen ese dato registrado en RIP para que coordinación pueda completar su información sin confundirlos con una coincidencia.
+El filtro de área usa los campos de solo lectura de RIP `area`, `instrumento` (`instrument` en registros antiguos) y `programa`, además de los intereses calculados en `studentComputed.cursos` e `studentComputed.instrumentos`. Al elegir Música y una familia instrumental, el padrón se limita a las coincidencias del instrumento; Danza, Teatro y Artes Plásticas se filtran por su área. La interfaz avisa cuando un activo realmente no tiene ese dato en RIP.
 
 ### ¿Quién ya se presentó?
 

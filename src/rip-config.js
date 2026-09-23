@@ -136,6 +136,8 @@ export function clasificarEstado(clasificacion = "") {
   return { nivel: "inactivo", etiqueta: clasificacion };
 }
 
+function textoPerfil(...valores) { return valores.flatMap(valor=>Array.isArray(valor)?valor:[valor]).map(valor=>String(valor||"").trim()).filter(Boolean).filter((valor,indice,lista)=>lista.indexOf(valor)===indice).join(", "); }
+
 /**
  * Trae el padrón de estudiantes cruzando `students` con `studentComputed`.
  * Descarta los documentos alias (homónimos ya fusionados) para no duplicar.
@@ -183,9 +185,9 @@ export async function ripFetchEstudiantes() {
       studentId: studentId || claveNombre,
       nombre,
       claveNombre,
-      area: String(data.area || data.arte || data.disciplina || "").trim(),
-      instrumento: String(data.instrumento || data.instrument || "").trim(),
-      programa: String(data.programa || data.program || data.course || "").trim(),
+      area: textoPerfil(data.area, data.arte, data.disciplina, computed.cursoDisplay, computed.cursos),
+      instrumento: textoPerfil(data.instrumento, data.instrument, computed.instrumentoDisplay, computed.instrumentos),
+      programa: textoPerfil(data.programa, data.program, data.course, computed.areaInteres),
       clasificacion,
       ...clasificarEstado(clasificacion),
       ultimaClase: String(computed.ultimaClase || "").trim()
