@@ -405,6 +405,7 @@ function listenParticipaciones() {
           fecha: evento?.fechaInicio || "",
           tipo: evento?.tipo || "",
           repertorio: data.repertorio || "",
+          repertorios: obrasDe(data),
           esEnsamble: Boolean(data.esEnsamble),
           nombreEnsamble: data.esEnsamble ? (data.estudianteGrupo || "") : "",
           estado: data.estado || ""
@@ -853,7 +854,7 @@ function resumenRepertorio() {
 
   const conteo = repertorioDelEvento();
   const repetidas = [...conteo.entries()].filter(([, usos]) => usos.length > 1);
-  const sinObra = filas.filter(row => !String(row.repertorio || "").trim()).length;
+  const sinObra = filas.filter(row => !obrasDe(row).length).length;
   const minutos = filas.reduce((total, row) => total + (Number(row.duracionMin) || 0), 0);
   const ensambles = filas.filter(row => row.esEnsamble).length;
 
@@ -870,7 +871,7 @@ function resumenRepertorio() {
 
   const detalle = repetidas.length
     ? `<p class="place-note" style="margin-top:8px;">${repetidas
-        .map(([, usos]) => `<strong>${escapeHtml(usos[0].repertorio)}</strong>: ${usos.map(u => escapeHtml(u.estudianteGrupo || "?")).join(", ")}`)
+        .map(([clave, usos]) => `<strong>${escapeHtml(obrasDe(usos[0]).find(o => ripNorm(o) === clave) || clave)}</strong>: ${usos.map(u => escapeHtml(u.estudianteGrupo || "?")).join(", ")}`)
         .join(" · ")}</p>`
     : "";
 
@@ -879,14 +880,31 @@ function resumenRepertorio() {
 
 /* ============ Control de repertorio (que no se repitan obras) ============ */
 
+/** Lista de obras de una presentación (admite registros antiguos con una sola obra). */
+function obrasDe(row = {}) {
+  if (Array.isArray(row.repertorios) && row.repertorios.length) {
+    return row.repertorios.map(o => String(o || "").trim()).filter(Boolean);
+  }
+  const texto = String(row.repertorio || "").trim();
+  return texto ? [texto] : [];
+}
+
+function campoObra(valor = "") {
+  return `<div class="obra-item" style="display:flex;gap:8px;margin-bottom:6px;">
+    <input name="repertorioItem" list="bancoRepertorio" value="${escapeHtml(valor)}" placeholder="Escribe la obra o elígela del banco" style="flex:1;" />
+    <button type="button" class="ghost obra-quitar" title="Quitar obra" aria-label="Quitar obra">✕</button>
+  </div>`;
+}
+
 /** Cuenta cuántas veces se usa cada obra en el evento abierto. */
 function repertorioDelEvento() {
   const conteo = new Map();
   state.childData.muestras.forEach(row => {
-    const clave = ripNorm(row.repertorio || "");
-    if (!clave) return;
-    if (!conteo.has(clave)) conteo.set(clave, []);
-    conteo.get(clave).push(row);
+    new Set(obrasDe(row).map(o => ripNorm(o))).forEach(clave => {
+      if (!clave) return;
+      if (!conteo.has(clave)) conteo.set(clave, []);
+      conteo.get(clave).push(row);
+    });
   });
   return conteo;
 }
@@ -908,7 +926,7 @@ function avisoRepertorio(obra, { excluirId = "", estudiante = "", studentId = ""
   const propias = state.participaciones.get(String(studentId).trim())
     || state.participaciones.get(ripNorm(estudiante))
     || [];
-  const anterior = propias.find(p => ripNorm(p.repertorio || "") === clave);
+  const anterior = propias.find(p => (p.repertorios?.length ? p.repertorios : [p.repertorio || ""]).some(o => ripNorm(o) === clave));
   if (anterior) return `ℹ️ Este estudiante ya la presentó en "${anterior.eventoTitulo}".`;
 
   return "✅ Obra libre en este evento.";
@@ -1296,9 +1314,9 @@ function renderTabContent(tab) {
         : escapeHtml(row.estudianteGrupo || "Sin nombre"),
       escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
-      (conteoObras.get(ripNorm(row.repertorio || ""))?.length > 1)
-        ? `${escapeHtml(row.repertorio)} <span class="badge danger">Repetida</span>`
-        : escapeHtml(row.repertorio || ""),
+      obrasDe(row).map(obra => (conteoObras.get(ripNorm(obra))?.length > 1)
+        ? `${escapeHtml(obra)} <span class="badge danger">Repetida</span>`
+        : escapeHtml(obra)).join("<br>"),
       row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
@@ -1486,40 +1504,60 @@ function openChildDialog(tab, row = null) {
   }
 
   // Al escoger una obra del banco de repertorio, se propone su género.
-  const repertorioInput = modalForm.querySelector('[name="repertorio"]');
+  const obrasLista = modalForm.querySelector("#obrasLista");
   const generoSelect = modalForm.querySelector('[name="genero"]');
-  if (repertorioInput && generoSelect) {
-    repertorioInput.addEventListener("change", () => {
-      const song = findRepertorio(repertorioInput.value);
-      if (song && generoSelect.value === "Sin definir") {
+  if (obrasLista) {
+    // Aviso de obra repetida: en este evento o ya presentada por el estudiante.
+    const avisarObras = () => {
+      const caja = modalForm.querySelector("#avisoRepertorio");
+      if (!caja) return;
+      const obras = [...obrasLista.querySelectorAll('[name="repertorioItem"]')].map(i => i.value.trim()).filter(Boolean);
+      if (!obras.length) {
+        caja.textContent = "Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.";
+        caja.className = "field-hint";
+        return;
+      }
+      const opciones = {
+        excluirId: row?.id || "",
+        estudiante: modalForm.querySelector('[name="estudianteGrupo"]')?.value || "",
+        studentId: modalForm.querySelector('[name="studentId"]')?.value || ""
+      };
+      const vistos = new Set();
+      const textos = obras.map(obra => {
+        const clave = ripNorm(obra);
+        const t = vistos.has(clave) ? "⚠️ Repetida dentro de esta misma presentación." : avisoRepertorio(obra, opciones);
+        vistos.add(clave);
+        return obras.length > 1 ? `${obra}: ${t}` : t;
+      });
+      caja.textContent = textos.join(" · ");
+      const alerta = textos.some(t => t.includes("⚠️"));
+      caja.className = "field-hint " + (alerta ? "hint-alerta" : textos.every(t => t.includes("✅")) ? "hint-ok" : "");
+    };
+    obrasLista.addEventListener("input", avisarObras);
+    obrasLista.addEventListener("change", (e) => {
+      // Al escoger una obra del banco de repertorio, se propone su género.
+      const song = findRepertorio(e.target.value || "");
+      if (song && generoSelect && generoSelect.value === "Sin definir") {
         if (![...generoSelect.options].some(option => option.value === song.genero)) {
           generoSelect.add(new Option(song.genero, song.genero));
         }
         generoSelect.value = song.genero;
       }
+      avisarObras();
     });
-
-    // Aviso de obra repetida: en este evento o ya presentada por el estudiante.
-    const avisarObra = () => {
-      const caja = modalForm.querySelector("#avisoRepertorio");
-      if (!caja) return;
-      const obra = repertorioInput.value.trim();
-      if (!obra) {
-        caja.textContent = "Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.";
-        caja.className = "field-hint";
-        return;
-      }
-      const texto = avisoRepertorio(obra, {
-        excluirId: row?.id || "",
-        estudiante: modalForm.querySelector('[name="estudianteGrupo"]')?.value || "",
-        studentId: modalForm.querySelector('[name="studentId"]')?.value || ""
-      });
-      caja.textContent = texto;
-      caja.className = "field-hint " + (texto.startsWith("⚠️") ? "hint-alerta" : texto.startsWith("✅") ? "hint-ok" : "");
-    };
-    repertorioInput.addEventListener("input", avisarObra);
-    repertorioInput.addEventListener("change", avisarObra);
-    if (repertorioInput.value) avisarObra();
+    obrasLista.addEventListener("click", (e) => {
+      const quitar = e.target.closest(".obra-quitar");
+      if (!quitar) return;
+      const items = obrasLista.querySelectorAll(".obra-item");
+      if (items.length > 1) quitar.closest(".obra-item").remove();
+      else items[0].querySelector("input").value = "";
+      avisarObras();
+    });
+    modalForm.querySelector("#agregarObra")?.addEventListener("click", () => {
+      obrasLista.insertAdjacentHTML("beforeend", campoObra());
+      obrasLista.lastElementChild.querySelector("input").focus();
+    });
+    avisarObras();
   }
 
   // Participantes: al escribir el nombre se resuelve contra el padrón de RIP,
@@ -1561,6 +1599,13 @@ function openChildDialog(tab, row = null) {
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
+      if (formData.has("repertorioItem")) {
+      const obras = formData.getAll("repertorioItem").map(value => String(value).trim()).filter(Boolean);
+      data.repertorios = obras;
+      // Texto unido para tablas, exportaciones y registros anteriores.
+      data.repertorio = obras.join(" / ");
+      delete data.repertorioItem;
+      }
       const seleccionados = formData.getAll("recursosSeleccionados").map(value => value.trim()).filter(Boolean);
       const otroRecurso = String(formData.get("recursoOtro") || "").trim();
       if (otroRecurso && !seleccionados.includes(otroRecurso)) seleccionados.push(otroRecurso);
@@ -1650,8 +1695,9 @@ function childForm(tab, row = {}) {
         </label>
         ${annualSystem.areaField(row)}
         <label>Docente<input name="docente" list="personasDisponibles" value="${escapeHtml(row.docente || "")}" /></label>
-        <label class="wide">Repertorio / actividad
-          <input name="repertorio" list="bancoRepertorio" value="${escapeHtml(row.repertorio || "")}" placeholder="Escribe la obra o elígela del banco" />
+        <label class="wide">Repertorio / actividad (una o varias obras)
+          <div id="obrasLista">${(obrasDe(row).length ? obrasDe(row) : [""]).map(o => campoObra(o)).join("")}</div>
+          <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
           <datalist id="bancoRepertorio">${BANCO_REPERTORIO.map(song => `<option value="${escapeHtml(song.titulo)}">${escapeHtml(song.artista)}</option>`).join("")}</datalist>
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
         </label>
