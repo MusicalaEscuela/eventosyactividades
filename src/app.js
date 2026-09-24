@@ -185,8 +185,18 @@ const FIELD_OPTIONS = {
 
 // Cada evento puede ajustar estas opciones desde Participantes sin afectar los demás.
 const RECURSOS_TECNICOS_INICIALES = [
-  "Micrófono", "Batería", "Banda", "Sonido", "Luces", "Tarima",
-  "Pista", "Piano / teclado", "Atril", "Monitor"
+  // Sonido general
+  "Sonido", "Monitor", "Pista", "Consola / mezcla",
+  // Micrófonos
+  "Micrófono", "Micrófono de voz inalámbrico", "Micrófono de voz con base", "Micrófono para violín / viola",
+  "Micrófono para chelo", "Micrófono para vientos", "Micrófono para guitarra acústica", "Micrófonos de batería",
+  // Instrumentos y amplificación
+  "Guitarra acústica", "Guitarra eléctrica", "Amplificador de guitarra", "Bajo eléctrico", "Amplificador de bajo",
+  "Piano / teclado", "Base para teclado", "Batería", "Percusión menor", "Cajón",
+  // Conexiones y accesorios
+  "Cable plug (instrumento)", "Caja directa (DI)", "Atril", "Base de micrófono", "Silla sin brazos", "Afinador",
+  // Escena
+  "Banda", "Tarima", "Luces"
 ];
 
 function listaParticipantes(campo, respaldo) {
