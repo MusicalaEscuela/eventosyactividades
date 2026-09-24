@@ -16,7 +16,7 @@ export const setDoc=async(ref,data,options)=>{records.set(ref.path,options?.merg
 export const updateDoc=async(ref,data)=>setDoc(ref,data,{merge:true});
 export const deleteDoc=async ref=>{records.delete(ref.path);emit();};
 export const addDoc=async(ref,data)=>{const r=doc(ref,crypto.randomUUID());await setDoc(r,data);return {id:r.path.split('/').at(-1)};};
-export const writeBatch=()=>{const pending=[];return {set:(r,d)=>pending.push([r,d]),delete:r=>pending.push([r,null]),commit:async()=>{for(const[r,d]of pending)d?records.set(r.path,d):records.delete(r.path);emit();}};};
+export const writeBatch=()=>{const pending=[];return {set:(r,d,o)=>pending.push([r,d,o]),delete:r=>pending.push([r,null]),commit:async()=>{for(const[r,d,o]of pending)d?records.set(r.path,o?.merge?{...records.get(r.path),...d}:d):records.delete(r.path);emit();}};};
 export async function runTransaction(db,fn){const pending=[];const result=await fn({get:async r=>snap(r.path),set:(r,d,o)=>pending.push([r,d,o])});for(const[r,d,o]of pending)records.set(r.path,o?.merge?{...records.get(r.path),...d}:d);emit();return result;}
 let authCallback;const user={email:'alekcaballeromusic@gmail.com',displayName:'Prueba local'};
 export const onAuthStateChanged=(auth,cb)=>{authCallback=cb;queueMicrotask(()=>cb(sessionStorage.getItem('test-login')?user:null));};

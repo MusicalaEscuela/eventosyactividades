@@ -80,13 +80,21 @@ const state = {
   unsubEventos: null,
   unsubLugares: null,
   unsubPersonas: null,
-  unsubChildren: []
+  unsubChildren: [],
+  actividadesComunesSincronizadas: false
 };
 
 const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
 const COLLECTION = "eventos";
 const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora"];
+const ACTIVIDADES_COMUNES_VERSION = 1;
+const ACTIVIDADES_COMUNES = [
+  { id: "actividad-comun-confirmar-docentes", titulo: "Confirmar con docentes el alcance, avance y si los estudiantes están listos para tocar", area: "Coordinación académica", responsable: "Coordinación académica", prioridad: "Alta" },
+  { id: "actividad-comun-confirmar-estudiantes", titulo: "Confirmar participación de estudiantes", area: "Estudiantes", responsable: "Docentes", prioridad: "Alta" },
+  { id: "actividad-comun-confirmar-invitados", titulo: "Confirmar invitados", area: "Comunicación", responsable: "Coordinación", prioridad: "Media" },
+  { id: "actividad-comun-enviar-invitaciones", titulo: "Enviar invitaciones", area: "Comunicación", responsable: "Administración", prioridad: "Alta" }
+];
 
 function emptyChildData() {
   return Object.fromEntries(CHILD_COLLECTIONS.map(child => [child, []]));
@@ -341,6 +349,14 @@ function listenEventos() {
     state.eventos = snapshot.docs
       .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
       .sort((a, b) => String(a.fechaInicio || "9999-12-31").localeCompare(String(b.fechaInicio || "9999-12-31")));
+    if (!state.actividadesComunesSincronizadas && state.eventos.some(evento => evento.actividadesComunesVersion !== ACTIVIDADES_COMUNES_VERSION)) {
+      state.actividadesComunesSincronizadas = true;
+      applyCommonActivitiesToExistingEvents().catch(error => {
+        console.error(error);
+        state.actividadesComunesSincronizadas = false;
+        toast("No se pudieron agregar las actividades comunes.");
+      });
+    }
     applyFilters();
     renderKpis();
     if (state.selectedEventId) {
@@ -1476,6 +1492,7 @@ function openEventDialog(evento = null) {
         data.createdAt = serverTimestamp();
         data.createdBy = state.user.email;
         const ref = await addDoc(collection(db, COLLECTION), data);
+        await createCommonActivities(ref.id);
         selectEvent(ref.id);
         toast("Evento creado.");
       }
@@ -1884,6 +1901,7 @@ async function createSeed() {
   state.selectedEvent = { id: ref.id, ...SEED_EVENT };
   await createChecklistTemplateForEvent(ref.id, SEED_EVENT.tipo, SEED_EVENT.fechaInicio);
   await createSeedActivities(ref.id);
+  await createCommonActivities(ref.id);
   selectEvent(ref.id);
   toast("Plantilla base creada.");
 }
@@ -1921,6 +1939,82 @@ async function createSeedActivities(eventId) {
     batch.set(ref, { ...item, createdAt: serverTimestamp(), createdByEmail: state.user.email, createdByName: state.user.displayName || state.user.email });
   });
   await batch.commit();
+}
+
+function actividadComunPayload(activity) {
+  return {
+    titulo: activity.titulo,
+    area: activity.area,
+    responsable: activity.responsable,
+    estado: "Pendiente",
+    prioridad: activity.prioridad,
+    fechaLimite: "",
+    notas: "Actividad común para todos los eventos. Puedes editarla o eliminarla si no aplica.",
+    createdAt: serverTimestamp(),
+    createdByEmail: state.user.email,
+    createdByName: state.user.displayName || state.user.email
+  };
+}
+
+async function createCommonActivities(eventId) {
+  const batch = writeBatch(db);
+  ACTIVIDADES_COMUNES.forEach(activity => {
+    batch.set(doc(db, COLLECTION, eventId, "actividades", activity.id), actividadComunPayload(activity));
+  });
+  batch.set(doc(db, COLLECTION, eventId), {
+    actividadesComunesVersion: ACTIVIDADES_COMUNES_VERSION,
+    actividadesComunesAplicadasAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    updatedBy: state.user.email
+  }, { merge: true });
+  await batch.commit();
+}
+
+async function applyCommonActivitiesToExistingEvents() {
+  const pendientes = state.eventos.filter(evento => evento.actividadesComunesVersion !== ACTIVIDADES_COMUNES_VERSION);
+  if (!pendientes.length) {
+    toast("Todos los eventos ya tienen sus actividades comunes aplicadas.");
+    return;
+  }
+  let actualizados = 0;
+  for (const evento of pendientes) {
+    const snap = await getDocs(collection(db, COLLECTION, evento.id, "actividades"));
+    const titulos = new Set(snap.docs.map(row => String(row.data().titulo || "").trim().toLocaleLowerCase("es-CO")));
+    const batch = writeBatch(db);
+    ACTIVIDADES_COMUNES
+      .filter(activity => !titulos.has(activity.titulo.toLocaleLowerCase("es-CO")))
+      .forEach(activity => batch.set(doc(db, COLLECTION, evento.id, "actividades", activity.id), actividadComunPayload(activity)));
+    batch.set(doc(db, COLLECTION, evento.id), {
+      actividadesComunesVersion: ACTIVIDADES_COMUNES_VERSION,
+      actividadesComunesAplicadasAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      updatedBy: state.user.email
+    }, { merge: true });
+    await batch.commit();
+    actualizados++;
+  }
+  toast(`Actividades comunes aplicadas en ${actualizados} evento(s).`);
+}
+
+function openCommonActivitiesDialog() {
+  const pendientes = state.eventos.filter(evento => evento.actividadesComunesVersion !== ACTIVIDADES_COMUNES_VERSION).length;
+  setModal(`
+    <h3>Actividades comunes</h3>
+    <p class="muted">Estas cuatro actividades se agregan por defecto a cada evento nuevo. Puedes editarlas o eliminarlas dentro de cada evento cuando no apliquen.</p>
+    <ol class="common-activities-list">${ACTIVIDADES_COMUNES.map(activity => `<li>${escapeHtml(activity.titulo)}</li>`).join("")}</ol>
+    <p class="field-hint">${pendientes ? `Se aplicarán también a ${pendientes} evento(s) existente(s), sin duplicar actividades con el mismo título.` : "Todos los eventos existentes ya fueron revisados."}</p>
+  `, pendientes ? "Aplicar a eventos existentes" : "");
+  if (!pendientes) return;
+  modalForm.onsubmit = async event => {
+    event.preventDefault();
+    try {
+      await applyCommonActivitiesToExistingEvents();
+      modal.close();
+    } catch (error) {
+      console.error(error);
+      toast("No se pudieron agregar las actividades comunes.");
+    }
+  };
 }
 
 async function collectEventPayload(eventId) {
@@ -2397,6 +2491,7 @@ function attachGlobalEvents() {
   $("#loginBtn").addEventListener("click", login);
   $("#logoutBtn").addEventListener("click", logout);
   $("#newEventBtn").addEventListener("click", () => openEventDialog());
+  $("#commonActivitiesBtn").addEventListener("click", openCommonActivitiesDialog);
   $("#placesBtn").addEventListener("click", openPlacesDialog);
   $("#peopleBtn").addEventListener("click", openPeopleDialog);
   $("#historyBtn").addEventListener("click", () => { state.mostrarHistorialEventos=!state.mostrarHistorialEventos;applyFilters(); });
@@ -2473,6 +2568,7 @@ onAuthStateChanged(auth, user => {
     state.vistaPrincipal = "eventos";
     state.selectedEventId = null;
     state.selectedEvent = null;
+    state.actividadesComunesSincronizadas = false;
   }
 });
 
