@@ -671,6 +671,13 @@ function candidatosPicker() {
     .filter(e => !soloActivos || e.nivel === "activo")
     .filter(e => !busqueda || ripNorm(e.nombre).includes(busqueda));
   const coincidencias = base.filter(e => coincideConFiltroArtistico(e, areaId, modalidadId));
+  // Si coordinación busca a alguien por nombre, no la escondemos solo porque
+  // RIP aún no tenga su instrumento clasificado. El distintivo advierte que la
+  // ficha debe completarse, pero permite asignar su presentación al filtro actual.
+  if (busqueda) {
+    const sinPerfil = base.filter(e => !areaArtisticaEstudiante(e));
+    return [...coincidencias, ...sinPerfil.filter(e => !coincidencias.includes(e))];
+  }
   return coincidencias.length ? coincidencias : base.filter(e => !areaArtisticaEstudiante(e));
 }
 
