@@ -6,12 +6,14 @@
  * instancia de la app y su propio inicio de sesión: el token de
  * `muestras-de-proceso` no sirve para `rip-musicala`.
  *
- * De RIP solo se leen dos colecciones pequeñas:
+ * De RIP se lee el padrón y su resumen; además se consulta únicamente el
+ * historial de clases (nunca pagos) para complementar servicios recientes
+ * que aún no hayan quedado materializados en el resumen:
  *   - `students`         → padrón (nombre e identificador canónico)
  *   - `studentComputed`  → clasificación calculada (Activo / Inactivo / Exestudiante)
+ *   - `registro` (Clase) → servicio artístico de los últimos 30 días
  *
- * La colección `registro` (clases y pagos) NUNCA se toca: es enorme y esta app
- * no tiene por qué ver información financiera.
+ * Eventos no consulta movimientos de pago ni escribe datos en RIP.
  *
  * Acceso: las reglas de RIP solo admiten los correos de su lista blanca.
  */
@@ -27,7 +29,9 @@ import {
 import {
   getFirestore,
   collection,
-  getDocs
+  getDocs,
+  query,
+  where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const RIP_CONFIG = {
@@ -138,6 +142,27 @@ export function clasificarEstado(clasificacion = "") {
 
 function textoPerfil(...valores) { return valores.flatMap(valor=>Array.isArray(valor)?valor:[valor]).map(valor=>String(valor||"").trim()).filter(Boolean).filter((valor,indice,lista)=>lista.indexOf(valor)===indice).join(", "); }
 
+function fechaRegistroMs(data = {}) {
+  if (typeof data.fechaTs?.toMillis === "function") return data.fechaTs.toMillis();
+  if (typeof data.fechaTs?.seconds === "number") return data.fechaTs.seconds * 1000;
+  const raw = String(data.fecha || data.fechaRaw || "").trim();
+  if (!raw) return 0;
+  const match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function servicioActivo(data, hoy = new Date()) {
+  if (data.duplicateReview) return "";
+  const servicio = String(data.servicio || "").trim();
+  const fecha = fechaRegistroMs(data);
+  const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime();
+  const inicioClase = fecha ? new Date(new Date(fecha).getFullYear(), new Date(fecha).getMonth(), new Date(fecha).getDate()).getTime() : 0;
+  const dias = inicioClase ? Math.floor((inicioHoy - inicioClase) / 86400000) : Number.POSITIVE_INFINITY;
+  return servicio && dias >= 0 && dias <= 30 ? servicio : "";
+}
+
 /**
  * Trae el padrón de estudiantes cruzando `students` con `studentComputed`.
  * Descarta los documentos alias (homónimos ya fusionados) para no duplicar.
@@ -150,6 +175,16 @@ export async function ripFetchEstudiantes() {
     getDocs(collection(db, "studentComputed"))
   ]);
 
+  // El resumen puede ir retrasado frente a las clases más recientes. Esta
+  // consulta trae solo documentos de tipo Clase, sin pagos, y solo conserva
+  // servicios de los últimos 30 días para reflejar lo que RIP muestra activo.
+  let clasesSnap = null;
+  try {
+    clasesSnap = await getDocs(query(collection(db, "registro"), where("tipo", "in", ["Clase", "clase"])));
+  } catch (error) {
+    console.warn("No se pudieron leer servicios recientes de RIP; se usa el resumen calculado.", error);
+  }
+
   // Clasificación por id de documento y también por nombre normalizado,
   // porque durante la migración conviven ambas llaves.
   const computedPorId = new Map();
@@ -160,6 +195,22 @@ export async function ripFetchEstudiantes() {
     computedPorId.set(d.id, data);
     const clave = ripNorm(data.estudianteKey || data.estudiante || "");
     if (clave) computedPorNombre.set(clave, data);
+  });
+
+  const serviciosPorId = new Map();
+  const serviciosPorNombre = new Map();
+  const agregarServicio = (mapa, llave, servicio) => {
+    if (!llave || !servicio) return;
+    const actuales = mapa.get(llave) || [];
+    if (!actuales.some(item => ripNorm(item) === ripNorm(servicio))) actuales.push(servicio);
+    mapa.set(llave, actuales);
+  };
+  clasesSnap?.docs.forEach(d => {
+    const data = d.data() || {};
+    const servicio = servicioActivo(data);
+    if (!servicio) return;
+    agregarServicio(serviciosPorId, String(data.studentId || data.canonicalStudentId || data.groupKey || "").trim(), servicio);
+    agregarServicio(serviciosPorNombre, ripNorm(data.estudianteKey || data.estudiante || ""), servicio);
   });
 
   const estudiantes = [];
@@ -180,14 +231,17 @@ export async function ripFetchEstudiantes() {
 
     const computed = computedPorId.get(d.id) || computedPorId.get(studentId) || computedPorNombre.get(claveNombre) || {};
     const clasificacion = String(computed.clasificacionFinal || computed.finalClasif || computed.paramClasif || "").trim();
+    const servicios = [...(serviciosPorId.get(studentId) || []), ...(serviciosPorNombre.get(claveNombre) || [])]
+      .filter((servicio, indice, lista) => lista.findIndex(item => ripNorm(item) === ripNorm(servicio)) === indice);
 
     estudiantes.push({
       studentId: studentId || claveNombre,
       nombre,
       claveNombre,
       area: textoPerfil(data.area, data.arte, data.disciplina, computed.cursoDisplay, computed.cursos),
-      instrumento: textoPerfil(data.instrumento, data.instrument, computed.instrumentoDisplay, computed.instrumentos),
+      instrumento: textoPerfil(data.instrumento, data.instrument, computed.instrumentoDisplay, computed.instrumentos, servicios),
       programa: textoPerfil(data.programa, data.program, data.course, computed.areaInteres),
+      servicios,
       clasificacion,
       ...clasificarEstado(clasificacion),
       ultimaClase: String(computed.ultimaClase || "").trim()
