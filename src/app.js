@@ -1185,7 +1185,7 @@ function renderDetail() {
         </div>
       </div>
       ${state.tab === "muestras" ? resumenRepertorio() : ""}
-      <div class="table-panel" id="tabContent">${renderTabContent(state.tab)}</div>
+      <div class="table-panel ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
     </section>
   `;
 

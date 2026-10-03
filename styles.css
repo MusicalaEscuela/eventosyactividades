@@ -360,7 +360,7 @@ select {
 .empty-state { text-align: center; padding: 52px 24px; color: var(--muted); }
 .empty-state h3 { color: var(--ink); margin: 0 0 8px; font-size: 1.25rem; }
 
-.event-detail { display: grid; gap: 16px; }
+.event-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
 .hero-event {
   background: linear-gradient(135deg, #ffffff 0%, #f7f5ff 60%, #fdf2f8 100%);
   border-color: rgba(87, 41, 255, .18);
@@ -402,7 +402,9 @@ select {
 .tab-btn:hover { border-color: var(--line-strong); color: var(--ink); }
 .tab-btn.active { background: var(--brand-gradient); border-color: transparent; color: #fff; box-shadow: 0 6px 16px rgba(87, 41, 255, .22); }
 
-.table-panel { overflow: auto; margin-top: 18px; }
+.table-panel { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: auto; margin-top: 18px; overscroll-behavior-x: contain; }
+.table-panel table { width: 100%; }
+.participants-table-panel table { min-width: 1500px; }
 table { width: 100%; border-collapse: collapse; min-width: 780px; }
 th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-size: .72rem; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
