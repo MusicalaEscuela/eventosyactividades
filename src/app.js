@@ -890,11 +890,17 @@ function resumenRepertorio() {
   const sinObra = filas.filter(row => !obrasDe(row).length).length;
   const minutos = filas.reduce((total, row) => total + (Number(row.duracionMin) || 0), 0);
   const ensambles = filas.filter(row => row.esEnsamble).length;
+  const invitacionesEnviadas = filas.filter(row => ["Enviada", "Aceptada", "Rechazada"].includes(row.invitacionEstado)).length;
+  const invitacionesAceptadas = filas.filter(row => row.invitacionEstado === "Aceptada").length;
+  const totalInvitados = filas.reduce((total, row) => total + (row.tieneInvitados ? Number(row.invitadosCantidad) || 0 : 0), 0);
 
   const chips = [
     `<span class="badge neutral">${filas.length} presentación${filas.length === 1 ? "" : "es"}</span>`,
     ensambles ? `<span class="badge info">${ensambles} ensamble${ensambles === 1 ? "" : "s"}</span>` : "",
     `<span class="badge neutral">${conteo.size} obra${conteo.size === 1 ? "" : "s"} distinta${conteo.size === 1 ? "" : "s"}</span>`,
+    `<span class="badge info">${invitacionesEnviadas} invitación${invitacionesEnviadas === 1 ? "" : "es"} enviada${invitacionesEnviadas === 1 ? "" : "s"}</span>`,
+    `<span class="badge success">${invitacionesAceptadas} aceptada${invitacionesAceptadas === 1 ? "" : "s"}</span>`,
+    `<span class="badge neutral">${totalInvitados} invitado${totalInvitados === 1 ? "" : "s"}</span>`,
     minutos ? `<span class="badge neutral">≈ ${minutos} min</span>` : "",
     sinObra ? `<span class="badge warning">${sinObra} sin obra asignada</span>` : "",
     repetidas.length
@@ -1340,7 +1346,7 @@ function renderTabContent(tab) {
 
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
-    return table(["Estudiante / grupo", "Área artística", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Duración", "Estado", "Recursos", ""], rows.map(row => [
+    return table(["Estudiante / grupo", "Área artística", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Duración", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
       row.esEnsamble
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <div class="muted" style="font-size:.78rem;margin-top:3px;">🎻 ${(row.integrantes || []).map(i => escapeHtml(i.nombre)).join(", ")}</div>`
@@ -1355,6 +1361,8 @@ function renderTabContent(tab) {
       escapeHtml(row.bloque || ""),
       row.duracionMin ? `${escapeHtml(row.duracionMin)} min` : "",
       badge(row.estado),
+      `<span class="badge ${row.invitacionEstado === "Aceptada" ? "success" : row.invitacionEstado === "Enviada" ? "info" : row.invitacionEstado === "Rechazada" ? "danger" : "neutral"}">${escapeHtml(row.invitacionEstado || "Pendiente")}</span>${row.invitacionFechaEnvio ? `<div class="muted" style="font-size:.78rem">${normalizeDate(row.invitacionFechaEnvio)}</div>` : ""}`,
+      row.tieneInvitados ? `${escapeHtml(row.invitadosCantidad || 0)} invitado${Number(row.invitadosCantidad) === 1 ? "" : "s"}` : "Sin invitados",
       escapeHtml(row.recursos || ""),
       rowActions(tab, row.id)
     ]));
@@ -1633,6 +1641,9 @@ function openChildDialog(tab, row = null) {
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
+      const cantidadInvitados = Math.max(0, Number.parseInt(formData.get("invitadosCantidad"), 10) || 0);
+      data.tieneInvitados = formData.has("tieneInvitados") || cantidadInvitados > 0;
+      data.invitadosCantidad = data.tieneInvitados ? cantidadInvitados : 0;
       if (formData.has("repertorioItem")) {
       const obras = formData.getAll("repertorioItem").map(value => String(value).trim()).filter(Boolean);
       data.repertorios = obras;
@@ -1739,6 +1750,16 @@ function childForm(tab, row = {}) {
         <label>Género<select name="genero">${opcionesConSeleccion(opcionesGeneros, generoActual)}</select></label>
         <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
         <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, row.prioridad || "Media")}</select></label>
+        <fieldset class="wide selector-recursos">
+          <legend>Invitación y acompañantes</legend>
+          <div class="form-grid">
+            <label>Estado de la invitación<select name="invitacionEstado">${selectOptions(["Pendiente", "Enviada", "Aceptada", "Rechazada"], row.invitacionEstado || "Pendiente")}</select></label>
+            <label>Fecha de envío<input type="date" name="invitacionFechaEnvio" value="${escapeHtml(row.invitacionFechaEnvio || "")}" /></label>
+            <label class="check-card"><input type="checkbox" name="tieneInvitados" value="true" ${row.tieneInvitados ? "checked" : ""} /><span>Asistirá con invitados</span></label>
+            <label>Cantidad de invitados<input type="number" min="0" step="1" name="invitadosCantidad" value="${escapeHtml(row.invitadosCantidad ?? 0)}" /></label>
+          </div>
+          <p class="field-hint">Este seguimiento queda guardado con la participación de este estudiante.</p>
+        </fieldset>
         <fieldset class="wide selector-recursos">
           <legend>Recursos técnicos</legend>
           <p class="field-hint">Marca todo lo que requiere este participante.</p>
