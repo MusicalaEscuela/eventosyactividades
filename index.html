@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&family=Sacramento&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=20261011-docentes" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -19,6 +19,7 @@
         <h1>Seguimiento de eventos, actividades y muestras de proceso</h1>
         <p class="muted">Organiza Musicala Fest, muestras, open days, ensayos, rider técnico, publicidad, alimentación, decoración, diplomas y todo ese hermoso caos humano con fechas límite.</p>
         <button id="loginBtn" class="btn btn-primary">Ingresar con Google</button>
+        <p><a class="btn btn-light" href="./docentes.html">Formato docente de muestras</a></p>
         <p class="fine-print">Conectado a Firebase: <strong>muestras-de-proceso</strong></p>
       </div>
     </section>
@@ -71,6 +72,7 @@
 
         <button id="annualBtn" class="btn btn-primary full">📅 Sistema anual de muestras</button>
         <button id="studentsBtn" class="btn btn-ghost full">🎓 Seguimiento de estudiantes</button>
+        <a class="btn btn-ghost full" href="./docentes.html" target="_blank" rel="noopener noreferrer">Formato docente sin iniciar sesión</a>
         <button id="newEventBtn" class="btn btn-primary full">+ Nuevo evento</button>
         <button id="commonActivitiesBtn" class="btn btn-ghost full">✓ Actividades comunes</button>
         <button id="placesBtn" class="btn btn-ghost full">Base de lugares</button>
@@ -119,6 +121,6 @@
     <div class="toast"></div>
   </template>
 
-  <script type="module" src="./src/app.js"></script>
+  <script type="module" src="./src/app.js?v=20261011-docentes"></script>
 </body>
 </html>

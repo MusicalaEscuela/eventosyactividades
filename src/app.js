@@ -1,4 +1,5 @@
 import { createAnnualSystem } from "./muestras-anual.js";
+import { createTeacherAdmin } from "./docentes-admin.js";
 import {
   auth,
   provider,
@@ -14,12 +15,13 @@ import {
   updateDoc,
   deleteDoc,
   getDocs,
+  getDocFromServer,
   onSnapshot,
   query,
   orderBy,
   serverTimestamp,
   writeBatch
-} from "./firebase-config.js";
+} from "./firebase-config.js?v=20261011-docentes";
 
 import { BANCO_REPERTORIO, GENEROS, normalizeGenre, findRepertorio } from "./repertorio.js";
 
@@ -86,6 +88,7 @@ const state = {
 
 const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
+const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
 const COLLECTION = "eventos";
 const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora"];
 const ACTIVIDADES_COMUNES_VERSION = 1;
@@ -1106,6 +1109,7 @@ function calculateProgress() {
 function renderDetail() {
   if (state.vistaPrincipal !== "eventos") return;
   if (!state.selectedEvent) {
+    teacherAdmin.stop();
     emptyState.classList.remove("hidden");
     eventDetail.classList.add("hidden");
     pageTitle.textContent = "Seguimiento de eventos";
@@ -1166,6 +1170,7 @@ function renderDetail() {
     </section>
 
     ${evento.tipo === "Muestra de proceso" ? annualSystem.panel(state.childData.muestras) : ""}
+    <section class="panel teacher-admin-panel" id="teacherAdminPanel"></section>
     <section class="panel">
       <div class="row-between">
         <div class="tabs">
@@ -1199,6 +1204,7 @@ function renderDetail() {
   }));
   $$("[data-action]").forEach(btn => btn.addEventListener("click", () => handleAction(btn.dataset.action)));
   attachBoardDragAndDrop();
+  teacherAdmin.mount($("#teacherAdminPanel"), evento);
 }
 
 /** Arrastrar tarjetas entre columnas para cambiar el estado. */
@@ -1511,7 +1517,7 @@ function openEventDialog(evento = null) {
     data.updatedBy = state.user.email;
     try {
       if (isEdit) {
-        await updateDoc(doc(db, COLLECTION, evento.id), data);
+        await updateEventAndTeacherCall(evento.id, data);
         toast("Evento actualizado.");
       } else {
         data.createdAt = serverTimestamp();
@@ -1871,11 +1877,24 @@ async function createChecklistTemplate() {
   toast("Checklist base cargado.");
 }
 
+async function updateEventAndTeacherCall(eventId, data) {
+  const catalogRef = doc(db, "convocatoriasDocentes", eventId);
+  const catalog = await getDocFromServer(catalogRef);
+  const batch = writeBatch(db);
+  batch.update(doc(db, COLLECTION, eventId), data);
+  if (catalog.exists()) {
+    const publicChanges = Object.fromEntries(["titulo", "fechaInicio", "lugar"].filter(k => k in data).map(k => [k, data[k]]));
+    if (["Realizado", "No realizado", "Archivado"].includes(data.estado)) publicChanges.abierta = false;
+    batch.update(catalogRef, { ...publicChanges, updatedAt: serverTimestamp(), updatedBy: state.user.email });
+  }
+  await batch.commit();
+}
+
 async function archiveEvent() {
   if (!state.selectedEventId) return;
   const confirmArchive = confirm("¿Archivar este evento? No se borra, solo queda fuera de lo activo.");
   if (!confirmArchive) return;
-  await updateDoc(doc(db, COLLECTION, state.selectedEventId), {
+  await updateEventAndTeacherCall(state.selectedEventId, {
     estado: "Archivado",
     updatedAt: serverTimestamp(),
     updatedBy: state.user.email
@@ -1883,7 +1902,7 @@ async function archiveEvent() {
   toast("Evento archivado.");
 }
 
-async function cerrarEvento(resultado) { if(!state.selectedEventId||!state.selectedEvent)return;const realizado=resultado==="realizado",mensaje=realizado?"¿Marcar este evento como realizado? Se conservará en el historial y dejará de aparecer en la lista diaria.":"¿Marcar este evento como no realizado? Se conservará en el historial con sus participantes, cronograma y demás información.";if(!confirm(mensaje))return;try{await updateDoc(doc(db,COLLECTION,state.selectedEventId),{estado:realizado?"Realizado":"No realizado",cierre:{resultado,cerradoAt:serverTimestamp(),cerradoBy:state.user.email},updatedAt:serverTimestamp(),updatedBy:state.user.email});state.mostrarHistorialEventos=false;applyFilters();toast(realizado?"Evento marcado como realizado y enviado al historial.":"Evento marcado como no realizado y enviado al historial.");}catch(error){console.error(error);toast("No se pudo cerrar el evento.");}}
+async function cerrarEvento(resultado) { if(!state.selectedEventId||!state.selectedEvent)return;const realizado=resultado==="realizado",mensaje=realizado?"¿Marcar este evento como realizado? Se conservará en el historial y dejará de aparecer en la lista diaria.":"¿Marcar este evento como no realizado? Se conservará en el historial con sus participantes, cronograma y demás información.";if(!confirm(mensaje))return;try{await updateEventAndTeacherCall(state.selectedEventId,{estado:realizado?"Realizado":"No realizado",cierre:{resultado,cerradoAt:serverTimestamp(),cerradoBy:state.user.email},updatedAt:serverTimestamp(),updatedBy:state.user.email});state.mostrarHistorialEventos=false;applyFilters();toast(realizado?"Evento marcado como realizado y enviado al historial.":"Evento marcado como no realizado y enviado al historial.");}catch(error){console.error(error);toast("No se pudo cerrar el evento.");}}
 
 async function deleteEvent() {
   if (!state.selectedEventId || !state.selectedEvent) return;
@@ -1907,7 +1926,12 @@ async function deleteEvent() {
         await batch.commit();
       }
     }
-    await deleteDoc(doc(db, COLLECTION, eventId));
+    const catalogRef = doc(db, "convocatoriasDocentes", eventId);
+    const catalog = await getDocFromServer(catalogRef);
+    const finalBatch = writeBatch(db);
+    finalBatch.delete(doc(db, COLLECTION, eventId));
+    if (catalog.exists()) finalBatch.update(catalogRef, { abierta: false, updatedAt: serverTimestamp(), updatedBy: state.user.email });
+    await finalBatch.commit();
     clearSelection();
     toast("Evento y registros relacionados eliminados definitivamente.");
   } catch (error) {
@@ -2587,6 +2611,7 @@ onAuthStateChanged(auth, user => {
     listenParticipaciones();
     cargarRipSilencioso();
   } else {
+    teacherAdmin.stop();
     annualSystem.stop();
     annualView.classList.add("hidden");
     kpis.classList.remove("hidden");

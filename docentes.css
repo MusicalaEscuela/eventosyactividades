@@ -1,0 +1,93 @@
+.docentes-page { background: radial-gradient(ellipse at top right, #ede7ff, transparent 42%), var(--bg); }
+.docentes-shell { max-width: 1060px; margin: 0 auto; padding: 30px 22px 100px; }
+.docentes-brand { display: flex; align-items: center; gap: 22px; margin: 0 0 25px; }
+.docentes-brand img { width: 150px; max-width: 100%; }
+.docentes-brand h1 { font-size: clamp(1.8rem, 4vw, 2.65rem); margin: 5px 0; }
+.docentes-brand .eyebrow { margin: 0; }
+.docentes-card { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); border-radius: 20px; padding: 25px; margin: 0 0 20px; min-width: 0; }
+.docentes-card h2 { margin-top: 0; font-size: 1.35rem; }
+.docentes-card h3 { margin-top: 0; font-size: 1.1rem; }
+.docentes-card p { line-height: 1.55; }
+.docentes-lead { color: var(--ink-soft); max-width: 760px; }
+.docentes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.docentes-grid > .docentes-wide { grid-column: 1 / -1; }
+.docentes-page label { display: flex; flex-direction: column; gap: 7px; font-weight: 500; font-size: .94rem; min-width: 0; }
+.docentes-page label small, .docentes-help { font-size: .85rem; font-weight: 400; color: var(--muted); line-height: 1.45; }
+.docentes-page input, .docentes-page select, .docentes-page textarea { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 10px; padding: 11px 12px; background: white; line-height: 1.45; }
+.docentes-page textarea { min-height: 92px; resize: vertical; }
+.docentes-page input:focus, .docentes-page select:focus, .docentes-page textarea:focus { outline: 3px solid #5729ff25; border-color: var(--violeta-vivaldi); }
+.docentes-page input:read-only, .docentes-page textarea:read-only, .docentes-page select:disabled { background: #f6f7fb; color: var(--ink); opacity: 1; }
+.docentes-page button:disabled { opacity: .58; cursor: default; }
+.docentes-page fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.docentes-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 20px; }
+.docentes-actions .btn { white-space: normal; }
+.docentes-note { border-left: 4px solid var(--info); border-radius: 10px; background: #eef3ff; padding: 14px 16px; line-height: 1.55; }
+.docentes-note p { margin: 0; }
+.docentes-note p + p { margin-top: 6px; }
+.docentes-note[data-tone="error"] { background: var(--danger-bg); border-color: var(--danger); }
+.docentes-note[data-tone="success"] { background: var(--success-bg); border-color: var(--success); }
+.docentes-note[data-tone="warning"] { background: var(--warning-bg); border-color: var(--warning); }
+.docentes-start .docentes-note { margin-top: 16px; }
+.docentes-event-summary { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }
+.docentes-event-summary h2 { margin-bottom: 8px; }
+.docentes-event-meta { margin: 0; color: var(--ink-soft); }
+.docentes-badge { display: inline-block; border-radius: 100px; padding: 7px 12px; background: var(--bg-soft); font-size: .85rem; font-weight: 500; white-space: nowrap; }
+.docentes-section-title { display: flex; justify-content: space-between; gap: 14px; align-items: center; margin-bottom: 8px; }
+.docentes-section-title h2 { margin: 0; }
+.docentes-presentation { border: 1px solid var(--line); background: white; border-radius: 14px; margin-top: 18px; overflow: hidden; }
+.docentes-presentation > summary { padding: 16px 18px; cursor: pointer; font-weight: 700; line-height: 1.45; background: #f6f4fe; overflow-wrap: anywhere; }
+.docentes-presentation-body { padding: 19px; }
+.docentes-presentation-body h3 { margin: 23px 0 14px; padding-top: 18px; border-top: 1px solid var(--line); }
+.docentes-presentation-body .docentes-grid + .docentes-grid { margin-top: 18px; }
+.docentes-remove { margin-top: 15px; }
+.docentes-link-card { border-color: #c3b6f5; background: #fcfaff; }
+.docentes-link-card h2 { margin-bottom: 8px; }
+.docentes-link-card input { font-size: .85rem; }
+.docentes-local-list { display: grid; gap: 10px; margin-top: 15px; }
+.docentes-local-item { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.docentes-local-item strong { display: block; overflow-wrap: anywhere; }
+.docentes-local-item span { color: var(--muted); font-size: .88rem; }
+.docentes-local-item a { flex-shrink: 0; }
+.docentes-savebar { position: sticky; bottom: 12px; background: rgba(255,255,255,.98); border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: var(--shadow); padding: 15px 18px; z-index: 5; }
+.docentes-savebar .docentes-actions { margin-top: 10px; }
+.docentes-save-status { margin: 0; line-height: 1.45; }
+.docentes-save-status[data-tone="success"] { color: #086e4d; }
+.docentes-save-status[data-tone="error"] { color: var(--danger); }
+.docentes-save-status[data-tone="warning"] { color: var(--warning); }
+.docentes-error-action { margin-top: 12px; }
+.docentes-print-only { display: none; }
+.docentes-footer { font-size: .86rem; color: var(--muted); line-height: 1.5; text-align: center; margin-top: 22px; }
+@media (max-width: 640px) {
+  .docentes-shell { padding: 20px 12px 70px; }
+  .docentes-brand { gap: 13px; }
+  .docentes-brand img { width: 105px; }
+  .docentes-brand .eyebrow { font-size: .72rem; }
+  .docentes-card { padding: 19px 16px; border-radius: 16px; }
+  .docentes-grid { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .docentes-presentation-body { padding: 16px 13px; }
+  .docentes-event-summary { flex-direction: column; }
+  .docentes-section-title { align-items: flex-start; }
+  .docentes-section-title .btn { padding: 9px 11px; font-size: .86rem; }
+  .docentes-local-item { align-items: flex-start; }
+  .docentes-savebar { bottom: 6px; padding: 13px; }
+  .docentes-savebar .docentes-actions > .btn { flex: 1 1 130px; }
+}
+@media print {
+  @page { margin: 15mm; }
+  .docentes-page { background: white; color: #111; font-size: 10pt; }
+  .docentes-shell { padding: 0; max-width: none; }
+  .docentes-brand { margin-bottom: 15px; }
+  .docentes-brand img { width: 110px; }
+  .docentes-brand h1 { font-size: 21pt; }
+  .docentes-card { box-shadow: none; padding: 14px 0; border: 0; border-bottom: 1px solid #ccc; border-radius: 0; margin-bottom: 14px; }
+  .docentes-page .docentes-no-print, .docentes-savebar, .docentes-link-card, .docentes-actions, .docentes-footer, .docentes-remove { display: none !important; }
+  .docentes-print-only { display: block; }
+  .docentes-presentation { border: 1px solid #ccc; margin-top: 12px; overflow: visible; }
+  .docentes-presentation > summary { background: white; padding: 10px; }
+  .docentes-presentation-body { padding: 10px; }
+  .docentes-page input, .docentes-page select, .docentes-page textarea { border: 0; background: white !important; padding: 3px 0; font-size: 10pt; }
+  .docentes-grid { gap: 10px 18px; }
+  .docentes-note { background: white; padding: 8px; }
+  .docentes-print-value { white-space: pre-wrap; overflow-wrap: anywhere; margin: 3px 0 0; color: #111; font-weight: 400; }
+  .docentes-page label small, .docentes-help { display: none; }
+}

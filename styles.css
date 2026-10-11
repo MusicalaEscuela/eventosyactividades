@@ -822,3 +822,13 @@ td { font-size: .88rem; line-height: 1.45; }
 @media print { .annual-guide .actions,.annual-editor { display:none; } .annual-card { break-inside:avoid; } }
 /* Espacio para los cuatro dígitos y controles nativos del selector de año. */
 #annualYear { width: 128px; min-width:128px; }
+
+/* Formularios docentes: coordinación conserva las propuestas fuera del cupo. */
+.teacher-admin-panel { min-width: 0; }
+.teacher-admin-panel summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.teacher-admin-list { display: grid; gap: 12px; margin-top: 18px; }
+.teacher-admin-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); flex-wrap: wrap; }
+.teacher-admin-card p { margin-bottom: 0; color: var(--muted); }
+.teacher-review-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px; margin: 16px 0; overflow-wrap: anywhere; }
+.teacher-duplicate-warning { color: var(--warning); background: var(--warning-bg); padding: 12px; border-radius: 10px; }
+@media print { .teacher-admin-panel { display: none; } }

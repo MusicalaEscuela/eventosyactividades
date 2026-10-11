@@ -1,0 +1,6 @@
+*debug.log
+*debug.*.log
+.rules-test-result.log
+tests/artifacts/
+node_modules/
+.firebase/

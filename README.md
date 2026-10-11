@@ -208,3 +208,11 @@ Las pruebas de reglas usan exclusivamente un proyecto demo del emulador.
 La autenticación Google real y la persistencia en producción deben verificarse en una
 sesión autorizada después de publicar Hosting y las reglas correspondientes. Cambiar
 los archivos locales no despliega reglas ni inicializa documentos en producción.
+
+## Formato docente sin inicio de sesión
+
+Acceso: [docentes.html](./docentes.html). En cada evento, coordinación abre **Formato docentes → Configurar inscripciones**, selecciona los docentes y establece la fecha límite. Puede copiar el enlace de esa muestra y revisar las fichas recibidas.
+
+Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
+
+Modelo, permisos y despliegue: [docs/formato-docentes.md](./docs/formato-docentes.md).

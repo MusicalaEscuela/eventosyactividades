@@ -30,6 +30,163 @@ service cloud.firestore {
         ];
     }
 
+    // Formato sin cuenta: el catálogo no contiene datos de estudiantes.
+    // Las fichas se leen por un secreto aleatorio; nunca se pueden enumerar.
+    function validDocenteToken(token) {
+      return token.matches('^[a-f0-9]{64}$');
+    }
+
+    function docenteParentPath(token) {
+      return /databases/$(database)/documents/fichasDocentes/$(token);
+    }
+
+    function docenteCatalogPath(eventoId) {
+      return /databases/$(database)/documents/convocatoriasDocentes/$(eventoId);
+    }
+
+    function docenteActive(token) {
+      return validDocenteToken(token)
+        && exists(docenteParentPath(token))
+        && get(docenteParentPath(token)).data.revocada == false;
+    }
+
+    function docenteWindow(data) {
+      let catalog = get(docenteCatalogPath(data.eventoId)).data;
+      let event = /databases/$(database)/documents/eventos/$(data.eventoId);
+      return exists(event)
+        && !(get(event).data.get('estado', '') in ['Realizado', 'No realizado', 'Archivado'])
+        && (data.reabiertaHasta is timestamp && data.reabiertaHasta > request.time
+          || catalog.abierta == true && catalog.cierreAt is timestamp && catalog.cierreAt > request.time);
+    }
+
+    function docenteText(data, key, max) {
+      return data[key] is string && data[key].size() <= max;
+    }
+
+    function docenteParentKeys() {
+      return ['eventoId', 'docenteId', 'docenteNombre', 'asistencia', 'disponibilidad',
+        'apoyo', 'indicacionesGenerales', 'estado', 'revision', 'cantidadPresentaciones',
+        'createdAt', 'updatedAt', 'revocada', 'reabiertaHasta', 'comentarioCoordinacion'];
+    }
+
+    function docenteParentValid(data) {
+      return data.keys().hasAll(docenteParentKeys())
+        && data.eventoId is string && data.eventoId.matches('^[A-Za-z0-9_-]{1,100}$')
+        && data.docenteId is string && data.docenteId.matches('^[A-Za-z0-9_-]{1,100}$')
+        && docenteText(data, 'docenteNombre', 160) && data.docenteNombre.size() > 0
+        && data.asistencia in ['Sí', 'No', 'Por confirmar']
+        && docenteText(data, 'disponibilidad', 2000) && docenteText(data, 'apoyo', 3000)
+        && docenteText(data, 'indicacionesGenerales', 5000)
+        && data.estado in ['Borrador', 'Enviado']
+        && data.revision is int && data.revision >= 1
+        && data.cantidadPresentaciones is int && data.cantidadPresentaciones >= 0 && data.cantidadPresentaciones <= 20
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && data.revocada == false && (data.reabiertaHasta == null || data.reabiertaHasta is timestamp)
+        && docenteText(data, 'comentarioCoordinacion', 5000);
+    }
+
+    function docentePresentationValid(data, parent) {
+      return data.keys().hasAll(['tipo', 'estudianteGrupo', 'integrantesTexto', 'areaArtisticaId',
+          'instrumento', 'repertorio', 'duracionMin', 'cantidadObras', 'recursos', 'materialUrl', 'preparacion',
+          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt'])
+        && data.keys().hasOnly(['tipo', 'estudianteGrupo', 'integrantesTexto', 'areaArtisticaId',
+          'instrumento', 'repertorio', 'duracionMin', 'cantidadObras', 'recursos', 'materialUrl', 'preparacion',
+          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt'])
+        && data.tipo in ['Individual', 'Ensamble']
+        && data.areaArtisticaId in ['musica', 'danza', 'teatro', 'artes-plasticas']
+        && docenteText(data, 'estudianteGrupo', 180) && docenteText(data, 'integrantesTexto', 3000)
+        && docenteText(data, 'instrumento', 120) && docenteText(data, 'repertorio', 3000)
+        && data.duracionMin is number && data.duracionMin >= 0 && data.duracionMin <= 120
+        && data.cantidadObras is int && data.cantidadObras >= 1 && data.cantidadObras <= 20
+        && docenteText(data, 'recursos', 2000) && docenteText(data, 'materialUrl', 1000)
+        && (data.materialUrl == '' || data.materialUrl.matches('^https?://[^\\s]+$'))
+        && docenteText(data, 'preparacion', 3000) && docenteText(data, 'entrada', 2000)
+        && docenteText(data, 'inicio', 2000) && docenteText(data, 'acompanamiento', 3000)
+        && docenteText(data, 'cierre', 2000) && docenteText(data, 'observaciones', 3000)
+        && data.revision is int && data.revision == parent.revision && data.updatedAt == request.time
+        && (parent.estado != 'Enviado' ||
+          data.estudianteGrupo.size() > 0 && data.repertorio.size() > 0
+          && (data.areaArtisticaId == 'artes-plasticas' || data.duracionMin > 0)
+          && (data.tipo != 'Ensamble' || data.integrantesTexto.size() > 0)
+          && (parent.asistencia != 'No' || data.preparacion.size() > 0 && data.inicio.size() > 0));
+    }
+
+    function docenteSubmissionValid(token, data) {
+      let first = /databases/$(database)/documents/fichasDocentes/$(token)/presentaciones/p01;
+      return data.estado != 'Enviado' || data.cantidadPresentaciones > 0
+        && existsAfter(first) && docentePresentationValid(getAfter(first).data, data);
+    }
+
+    function docenteParentCreate(token) {
+      let data = request.resource.data;
+      let catalog = get(docenteCatalogPath(data.eventoId)).data;
+      let reservation = /databases/$(database)/documents/convocatoriasDocentes/$(data.eventoId)/reservas/$(data.docenteId);
+      return validDocenteToken(token) && data.keys().hasOnly(docenteParentKeys())
+        && docenteParentValid(data) && data.revision == 1 && data.createdAt == request.time
+        && data.reabiertaHasta == null && data.comentarioCoordinacion == ''
+        && catalog.docentes[data.docenteId] == data.docenteNombre && docenteWindow(data)
+        && existsAfter(reservation) && getAfter(reservation).data.fichaToken == token
+        && getAfter(reservation).data.createdAt == request.time
+        && docenteSubmissionValid(token, data);
+    }
+
+    function docenteParentUpdate(token) {
+      let data = request.resource.data;
+      return validDocenteToken(token) && resource.data.revocada == false
+        && resource.data.estado in ['Borrador', 'Enviado', 'Requiere ajustes']
+        && data.diff(resource.data).affectedKeys().hasOnly(['asistencia', 'disponibilidad', 'apoyo',
+          'indicacionesGenerales', 'estado', 'revision', 'cantidadPresentaciones', 'updatedAt'])
+        && docenteParentValid(data) && data.revision == resource.data.revision + 1
+        && docenteWindow(data) && docenteSubmissionValid(token, data);
+    }
+
+    function docenteChildrenWindow(token) {
+      let parent = getAfter(docenteParentPath(token)).data;
+      return validDocenteToken(token) && parent.revocada == false
+        && parent.estado in ['Borrador', 'Enviado'] && parent.updatedAt == request.time
+        && docenteWindow(parent)
+        && (!exists(docenteParentPath(token)) && parent.revision == 1
+          || exists(docenteParentPath(token)) && get(docenteParentPath(token)).data.estado != 'Confirmado'
+          && parent.revision == get(docenteParentPath(token)).data.revision + 1);
+    }
+
+    match /convocatoriasDocentes/{eventoId} {
+      allow get, list: if true;
+      allow create, update: if googleUser();
+      allow delete: if isAdmin();
+
+      match /reservas/{docenteId} {
+        allow read, update: if googleUser();
+        allow delete: if isAdmin();
+        allow create: if googleUser() ||
+          request.resource.data.keys().hasAll(['fichaToken', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['fichaToken', 'createdAt'])
+          && request.resource.data.createdAt == request.time
+          && validDocenteToken(request.resource.data.fichaToken)
+          && existsAfter(docenteParentPath(request.resource.data.fichaToken))
+          && getAfter(docenteParentPath(request.resource.data.fichaToken)).data.eventoId == eventoId
+          && getAfter(docenteParentPath(request.resource.data.fichaToken)).data.docenteId == docenteId
+          && getAfter(docenteParentPath(request.resource.data.fichaToken)).data.createdAt == request.time;
+      }
+    }
+
+    match /fichasDocentes/{token} {
+      allow get: if googleUser() || validDocenteToken(token) && resource.data.revocada == false;
+      allow list: if googleUser();
+      allow delete: if isAdmin();
+      allow create: if googleUser() || docenteParentCreate(token);
+      allow update: if googleUser() || docenteParentUpdate(token);
+
+      match /presentaciones/{presentacionId} {
+        allow get, list: if googleUser() || docenteActive(token);
+        allow create, update: if googleUser() || presentacionId.matches('^p(0[1-9]|1[0-9]|20)$')
+          && docenteChildrenWindow(token)
+          && docentePresentationValid(request.resource.data, getAfter(docenteParentPath(token)).data);
+        allow delete: if isAdmin() || presentacionId.matches('^p(0[1-9]|1[0-9]|20)$')
+          && docenteChildrenWindow(token);
+      }
+    }
+
     // App: seguimiento de eventos, actividades y muestras de proceso.
     // Ajusta esta regla si quieres permitir acceso a más correos del equipo.
     match /eventos/{eventoId} {
