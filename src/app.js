@@ -1,5 +1,7 @@
 import { createAnnualSystem } from "./muestras-anual.js";
-import { createTeacherAdmin } from "./docentes-admin.js";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-reutilizar";
+import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
+import { normalizarNombre } from "./docentes-model.js";
 import {
   auth,
   provider,
@@ -16,6 +18,7 @@ import {
   deleteDoc,
   getDocs,
   getDocFromServer,
+  getDocsFromServer,
   onSnapshot,
   query,
   orderBy,
@@ -72,6 +75,8 @@ const state = {
   ripError: "",
   ripEstudiantes: [],
   participaciones: new Map(),     // clave de estudiante → presentaciones
+  participantesRegistrados: [],
+  convocatoriasDocentes: [],
   filtroEstudiantes: { texto: "", nivel: "", presentado: "" },
   mostrarHistorialEventos: false,
   unsubParticipaciones: null,
@@ -82,13 +87,14 @@ const state = {
   unsubEventos: null,
   unsubLugares: null,
   unsubPersonas: null,
+  unsubConvocatoriasDocentes: null,
   unsubChildren: [],
   actividadesComunesSincronizadas: false
 };
 
 const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
-const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
+const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, teacherCandidates: docentesYaUsados, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
 const COLLECTION = "eventos";
 const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora"];
 const ACTIVIDADES_COMUNES_VERSION = 1;
@@ -362,6 +368,7 @@ function listenEventos() {
     state.eventos = snapshot.docs
       .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
       .sort((a, b) => String(a.fechaInicio || "9999-12-31").localeCompare(String(b.fechaInicio || "9999-12-31")));
+    syncDatalists();
     if (!state.actividadesComunesSincronizadas && state.eventos.some(evento => evento.actividadesComunesVersion !== ACTIVIDADES_COMUNES_VERSION)) {
       state.actividadesComunesSincronizadas = true;
       applyCommonActivitiesToExistingEvents().catch(error => {
@@ -409,6 +416,7 @@ function claveEstudiante(row) {
 function listenParticipaciones() {
   if (state.unsubParticipaciones) state.unsubParticipaciones();
   state.unsubParticipaciones = onSnapshot(collectionGroup(db, "muestras"), snapshot => {
+    state.participantesRegistrados = snapshot.docs.map(d => d.data());
     const indice = new Map();
     snapshot.docs.forEach(docSnap => {
       const data = docSnap.data() || {};
@@ -442,6 +450,7 @@ function listenParticipaciones() {
       });
     });
     state.participaciones = indice;
+    syncDatalists();
     if (state.vistaPrincipal === "estudiantes") renderEstudiantes();
   }, error => {
     console.error(error);
@@ -759,6 +768,7 @@ function openStudentPicker(modo = "individual") {
     return;
   }
   state.picker = { modo, seleccion: new Set(), texto: "", soloActivos: true, areaId: "musica", modalidadId: "" };
+  const assignedTeachers = uniqueSuggestions(state.childData.muestras.map(row => row.docente));
 
   setModal(`
     <h3>${modo === "ensamble" ? "Crear ensamble" : "Agregar participantes"}</h3>
@@ -783,6 +793,7 @@ function openStudentPicker(modo = "individual") {
     <div class="form-grid">
       ${annualSystem.areaField({ areaArtisticaId: "musica" })}
       <div id="pickerModalidad">${annualSystem.modalityField({}, "musica")}</div>
+      <label class="wide">Docente para los estudiantes seleccionados<input name="docente" maxlength="160" list="docentesDisponibles" value="${escapeHtml(assignedTeachers.length === 1 ? assignedTeachers[0].name : '')}" placeholder="Elige un docente ya registrado" /><span class="field-hint">Se asigna una sola vez a todo este grupo. Puedes dejarlo pendiente.</span></label>
     </div>
     <p class="field-hint" id="pickerFiltroInfo"></p>
     <div class="picker-lista" id="pickerLista">${renderPickerLista()}</div>
@@ -838,6 +849,7 @@ function openStudentPicker(modo = "individual") {
     const base = annualSystem.normalizeParticipant({
       areaArtisticaId: modalForm.querySelector('[name="areaArtisticaId"]').value,
       modalidadPresentacionId: modalForm.querySelector('[name="modalidadPresentacionId"]').value,
+      docente: modalForm.querySelector('[name="docente"]').value.trim(),
       area: "Música",
       estado: "Pendiente",
       prioridad: "Media",
@@ -1009,6 +1021,17 @@ function listenPersonas() {
   });
 }
 
+function listenTeacherCalls() {
+  if (state.unsubConvocatoriasDocentes) state.unsubConvocatoriasDocentes();
+  state.unsubConvocatoriasDocentes = onSnapshot(collection(db, "convocatoriasDocentes"), snapshot => {
+    state.convocatoriasDocentes = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    syncDatalists();
+  }, error => {
+    console.error(error);
+    toast(explicarError(error, "No pude leer los nombres ya habilitados en las muestras"));
+  });
+}
+
 function clearChildListeners() {
   state.unsubChildren.forEach(unsub => unsub && unsub());
   state.unsubChildren = [];
@@ -1022,6 +1045,7 @@ function listenChildren(eventId) {
       state.childData[child] = snapshot.docs
         .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
         .sort((a, b) => String(a.fechaLimite || a.fecha || a.createdAt?.seconds || "").localeCompare(String(b.fechaLimite || b.fecha || b.createdAt?.seconds || "")));
+      syncDatalists();
       renderDetail();
     }, error => {
       console.error(error);
@@ -1631,7 +1655,8 @@ function openChildDialog(tab, row = null) {
   const nombreInput = modalForm.querySelector('[name="nombre"]');
   if (tab === "equipo" && nombreInput) {
     nombreInput.addEventListener("change", () => {
-      const persona = state.personas.find(p => (p.nombre || "").toLowerCase() === nombreInput.value.trim().toLowerCase());
+      const matches = state.personas.filter(p => normalizarNombre(p.nombre) === normalizarNombre(nombreInput.value));
+      const persona = matches.length === 1 ? matches[0] : null;
       if (!persona) return;
       const rolInput = modalForm.querySelector('[name="rol"]');
       const contactoInput = modalForm.querySelector('[name="contacto"]');
@@ -1745,7 +1770,7 @@ function childForm(tab, row = {}) {
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
         ${annualSystem.areaField(row)}
-        <label>Docente<input name="docente" list="personasDisponibles" value="${escapeHtml(row.docente || "")}" /></label>
+        <label>Docente<input name="docente" list="docentesDisponibles" value="${escapeHtml(row.docente || "")}" /></label>
         <label class="wide">Repertorio / actividad (una o varias obras)
           <div id="obrasLista">${(obrasDe(row).length ? obrasDe(row) : [""]).map(o => campoObra(o)).join("")}</div>
           <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
@@ -2403,25 +2428,29 @@ async function deletePlace(lugar) {
 
 /* ==================== Base maestra de personas ==================== */
 
-// Mantiene los <datalist> globales al día para que todos los formularios sugieran.
+function docentesYaUsados() {
+  const recorded = collectReusableContext({ children: state.childData, participations: state.participantesRegistrados }).teachers;
+  return [...state.personas,
+    ...recorded.map(row => ({ nombre: row.name, tipo: 'Docente', source: 'Participaciones registradas' })),
+    ...state.convocatoriasDocentes.flatMap(call => Object.values(call.docentes || {}).map(nombre => ({ nombre, tipo: 'Docente', source: 'Nombre habilitado en otra muestra' })))
+  ];
+}
+
+// Se reutilizan los nombres ya guardados sin crear registros nuevos en las bases.
 function syncDatalists() {
-  const personas = $("#personasDisponibles");
-  const lugares = $("#lugaresDisponibles");
-  if (personas) {
-    personas.innerHTML = state.personas
-      .map(p => `<option value="${escapeHtml(p.nombre || "")}">${escapeHtml([p.rol, p.tipo].filter(Boolean).join(" · "))}</option>`)
-      .join("");
-  }
-  if (lugares) {
-    lugares.innerHTML = state.lugares.map(l => `<option value="${escapeHtml(l.nombre || "")}"></option>`).join("");
-  }
-  const estudiantes = $("#estudiantesDisponibles");
-  if (estudiantes) {
-    estudiantes.innerHTML = state.ripEstudiantes
-      .filter(e => e.nivel === "activo")
-      .map(e => `<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.etiqueta)}</option>`)
-      .join("");
-  }
+  const context = collectReusableContext({ people: docentesYaUsados(), places: state.lugares, events: state.eventos, children: state.childData, participations: state.participantesRegistrados });
+  const fill = (id, entries) => {
+    const list = $(`#${id}`);
+    if (list) list.innerHTML = uniqueSuggestions(entries).sort((a,b) => a.name.localeCompare(b.name, 'es'))
+      .map(row => `<option value="${escapeHtml(row.name)}">${escapeHtml(row.detail || '')}</option>`).join('');
+  };
+  fill('personasDisponibles', context.people);
+  fill('docentesDisponibles', context.teachers);
+  fill('lugaresDisponibles', context.places);
+  fill('estudiantesDisponibles', [
+    ...state.ripEstudiantes.filter(e => e.nivel === 'activo').map(e => ({ name: e.nombre, detail: e.etiqueta })),
+    ...context.students
+  ]);
 }
 
 function renderPeopleCards() {
@@ -2608,6 +2637,7 @@ onAuthStateChanged(auth, user => {
     listenEventos();
     listenLugares();
     listenPersonas();
+    listenTeacherCalls();
     listenParticipaciones();
     cargarRipSilencioso();
   } else {
@@ -2620,11 +2650,14 @@ onAuthStateChanged(auth, user => {
     if (state.unsubEventos) state.unsubEventos();
     if (state.unsubLugares) state.unsubLugares();
     if (state.unsubPersonas) state.unsubPersonas();
+    if (state.unsubConvocatoriasDocentes) state.unsubConvocatoriasDocentes();
     if (state.unsubParticipaciones) state.unsubParticipaciones();
     clearChildListeners();
     state.eventos = [];
     state.lugares = [];
     state.personas = [];
+    state.convocatoriasDocentes = [];
+    state.participantesRegistrados = [];
     state.ripEstudiantes = [];
     state.ripEstado = "desconectado";
     state.participaciones = new Map();
@@ -2632,6 +2665,7 @@ onAuthStateChanged(auth, user => {
     state.selectedEventId = null;
     state.selectedEvent = null;
     state.actividadesComunesSincronizadas = false;
+    syncDatalists();
   }
 });
 

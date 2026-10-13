@@ -1,6 +1,7 @@
-import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, query, where, setDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } from './firebase-config.js?v=20261011-docentes';
+import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, query, where, updateDoc, serverTimestamp, Timestamp, runTransaction } from './firebase-config.js?v=20261011-docentes';
 import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js';
 import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js';
+import { buildTeacherOptions } from './eventos-context.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const camposInstruccion = { preparacion:'Preparación', entrada:'Entrada a escena', inicio:'Señal de inicio', acompanamiento:'Acompañamiento', cierre:'Cierre', observaciones:'Observaciones' };
@@ -15,7 +16,7 @@ const propuestasRepetidas = (propuesta, anteriores) => {
 const inscripcionesAnteriores = (ficha, propuestas, existentes) => [...new Set(Object.values(ficha.confirmaciones || {}))]
   .map(id => existentes.find(row => row.id === id)).filter(row => row && !propuestas.some(p => coincidenciasPresentacion(p, [row]).some(m => m.exacta)));
 
-export function createTeacherAdmin({ user, people, students, annual, setModal, modalForm, modal, toast }) {
+export function createTeacherAdmin({ user, people, teacherCandidates = people, students, annual, setModal, modalForm, modal, toast }) {
   let root, event, config = null, fichas = [], unsubs = [], opened = false, error = '', ready = false;
   function stop() { unsubs.forEach(fn => fn()); unsubs = []; event = null; root = null; fichas = []; config = null; ready = false; }
   function mount(element, selectedEvent) {
@@ -51,12 +52,51 @@ export function createTeacherAdmin({ user, people, students, annual, setModal, m
   async function configure() {
     const selectedEvent = { ...event };
     const eventId = selectedEvent.id;
-    const teachers = people().filter(p => p.tipo === 'Docente' && p.nombre?.trim());
-    const available = new Map(teachers.map(p => [p.id, p.nombre]));
-    Object.entries(config?.docentes || {}).forEach(([id,name]) => available.set(id,name));
+    setModal('<h3>Inscripciones docentes</h3><p>Buscando los docentes ya registrados en esta muestra…</p>', null);
+    const loadingBody = modalForm.firstElementChild;
+    let options, previous;
+    try {
+      const [rows, catalog, savedFichas] = await Promise.all([
+        getDocsFromServer(collection(db, 'eventos', eventId, 'muestras')),
+        getDocFromServer(doc(db, 'convocatoriasDocentes', eventId)),
+        getDocsFromServer(query(collection(db, 'fichasDocentes'), where('eventoId', '==', eventId)))
+      ]);
+      previous = catalog.exists() ? catalog.data() : null;
+      options = await buildTeacherOptions({ people: teacherCandidates(), participants: rows.docs.map(d => d.data()), configured: previous?.docentes || {}, fichas: savedFichas.docs.map(d => d.data()).filter(f => !f.revocada) });
+    } catch (error) {
+      if (event?.id === eventId && modal.open && modalForm.firstElementChild === loadingBody) setModal(`<h3>No pude leer los docentes</h3><p role="alert">${esc(error.message)}</p>`, null);
+      return;
+    }
+    if (event?.id !== eventId || !modal.open || modalForm.firstElementChild !== loadingBody) return;
+    const available = new Map(options.map(p => [p.id, p.name]));
     const closedEvent = ['Realizado','No realizado','Archivado'].includes(selectedEvent.estado);
-    const deadline = config?.cierreAt ? dateLocal(config.cierreAt) : `${event.fechaInicio || new Date().toISOString().slice(0,10)}T23:59`;
-    setModal(`<h3>Inscripciones docentes · ${esc(event.titulo)}</h3><p class="field-hint">Sólo se publican el nombre de la muestra, su fecha, lugar y los nombres de docentes habilitados.</p><div class="form-grid"><label class="check-card wide"><input type="checkbox" name="abierta" ${config?.abierta && !closedEvent ? 'checked' : ''} ${closedEvent ? 'disabled' : ''} />Abrir inscripciones</label><label class="wide">Fecha y hora de cierre (Bogotá)<input type="datetime-local" name="cierreAt" required value="${esc(deadline)}" /></label></div>${closedEvent ? '<p>Este evento está cerrado. Cambia su estado antes de abrir inscripciones.</p>' : ''}<fieldset class="form-section"><legend>Docentes habilitados</legend><div class="check-grid">${[...available].map(([id,name]) => `<label class="check-card"><input type="checkbox" name="docente" value="${esc(id)}" ${config?.docentes?.[id] ? 'checked' : ''} /><span>${esc(name)}</span></label>`).join('')}</div><label>Agregar otros nombres (uno por línea)<textarea name="otros" placeholder="Nombre completo del docente"></textarea></label><p class="field-hint">Puedes registrar docentes en la Base de personas o agregarlos aquí. No necesitan correo ni cuenta.</p></fieldset><p id="teacherConfigResult" role="status"></p>`, 'Guardar configuración');
+    const deadline = previous?.cierreAt ? dateLocal(previous.cierreAt) : `${selectedEvent.fechaInicio || new Date().toISOString().slice(0,10)}T23:59`;
+    const assigned = options.filter(p => p.assigned).length;
+    setModal(`<h3>Inscripciones docentes · ${esc(selectedEvent.titulo)}</h3>
+      <p class="field-hint">Sólo se publican el nombre de la muestra, su fecha, lugar y los nombres de docentes habilitados.</p>
+      <div class="form-grid"><label class="check-card wide"><input type="checkbox" name="abierta" ${previous?.abierta && !closedEvent ? 'checked' : ''} ${closedEvent ? 'disabled' : ''} />Abrir inscripciones</label><label class="wide">Fecha y hora de cierre (Bogotá)<input type="datetime-local" name="cierreAt" required value="${esc(deadline)}" /></label></div>
+      ${closedEvent ? '<p>Este evento está cerrado. Cambia su estado antes de abrir inscripciones.</p>' : ''}
+      <fieldset class="form-section"><legend>Docentes habilitados</legend>
+        <p class="field-hint">Reutilizamos los docentes de los participantes, las fichas guardadas y los nombres ya usados. ${previous ? 'Se conserva tu selección anterior.' : 'Los docentes ya asignados a esta muestra aparecen seleccionados.'}</p>
+        ${assigned ? `<button type="button" class="btn btn-light" data-select-assigned>Seleccionar docentes de esta muestra (${assigned})</button>` : ''}
+        <div class="check-grid">${options.map(p => `<label class="check-card"><input type="checkbox" name="docente" value="${esc(p.id)}" data-assigned="${p.assigned}" ${p.enabled || !previous && p.assigned ? 'checked' : ''} /><span>${esc(p.name)}<small class="teacher-option-source">${esc(p.sources.join(' · '))}${p.conflict ? ' · Registro existente: revisa cuál corresponde' : ''}</small></span></label>`).join('') || '<p>Todavía no hay docentes registrados en esta muestra.</p>'}</div>
+        <label>Agregar un nombre que aún no aparece (uno por línea)<textarea name="otros" placeholder="Sólo nombres nuevos"></textarea></label>
+        <p class="field-hint">Los nombres existentes se reutilizan, aunque los escribas con distintas mayúsculas o tildes.</p>
+      </fieldset><p id="teacherConfigResult" role="status"></p>`, 'Guardar configuración');
+    modalForm.querySelector('[data-select-assigned]')?.addEventListener('click', () => {
+      const groups = new Map();
+      options.filter(p => p.assigned).forEach(p => {
+        const key = p.groupKey || normalizarNombre(p.name);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(p);
+      });
+      groups.forEach(group => {
+        const inputs = group.map(p => ({ option: p, input: [...modalForm.querySelectorAll('[name="docente"]')].find(input => input.value === p.id) }));
+        if (inputs.some(row => row.input?.checked)) return;
+        const chosen = inputs.find(row => row.option.hasFicha) || inputs.find(row => row.option.enabled) || inputs[0];
+        if (chosen?.input) chosen.input.checked = true;
+      });
+    });
     modalForm.onsubmit = async e => {
       e.preventDefault(); const result = modalForm.querySelector('#teacherConfigResult'); const button = modalForm.querySelector('[type="submit"]');
       const fd = new FormData(modalForm); const docentes = Object.fromEntries(fd.getAll('docente').map(id => [id, available.get(id)]));
@@ -65,17 +105,37 @@ export function createTeacherAdmin({ user, people, students, annual, setModal, m
         for (const name of String(fd.get('otros') || '').split(/\r?\n/).map(s=>s.trim()).filter(Boolean)) {
           if (name.length > 160) throw Error('Cada nombre admite hasta 160 caracteres.');
           if (Object.values(docentes).some(n => normalizarNombre(n) === normalizarNombre(name))) continue;
+          const known = options.filter(p => p.aliases?.includes(normalizarNombre(name)) || normalizarNombre(p.name) === normalizarNombre(name));
+          if (known.length > 1) throw Error(`Selecciona el registro existente de ${name} en la lista.`);
+          if (known.length === 1) { docentes[known[0].id] = known[0].name; continue; }
           const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizarNombre(name)));
           docentes['nombre-' + [...new Uint8Array(hash)].slice(0,16).map(v=>v.toString(16).padStart(2,'0')).join('')] = name;
         }
-        const names=Object.values(docentes).map(normalizarNombre);
-        if(new Set(names).size!==names.length)throw Error('Hay docentes con el mismo nombre. Habilita sólo un registro por docente.');
+        if (Object.values(docentes).some(name => !name || name.length > 160)) throw Error('Revisa los nombres: cada docente admite hasta 160 caracteres.');
+        const selectedByName = new Map();
+        Object.entries(docentes).forEach(([id,name]) => {
+          const key = options.find(p => p.id === id)?.groupKey || normalizarNombre(name);
+          if (!selectedByName.has(key)) selectedByName.set(key, []);
+          selectedByName.get(key).push(id);
+        });
+        for (const [name, ids] of selectedByName) {
+          const matches = options.filter(p => (p.groupKey || normalizarNombre(p.name)) === name);
+          if (ids.length > 1 && !ids.every(id => previous?.docentes?.[id] && options.find(p => p.id === id)?.hasFicha)) throw Error('Hay registros equivalentes del mismo docente. Habilita sólo el registro que corresponde a su ficha existente.');
+          if (ids.some(id => !options.find(p => p.id === id)?.hasFicha && matches.some(p => p.id !== id && p.hasFicha))) throw Error('Ese docente ya tiene una ficha con otro registro. Selecciona el nombre marcado como Ficha docente para conservar su enlace.');
+        }
         const fecha = dateValue(fd.get('cierreAt')); const abierta = fd.has('abierta') && !closedEvent;
         if (abierta && (!Object.keys(docentes).length || fecha.toMillis() <= Date.now())) throw Error('Selecciona al menos un docente y una fecha de cierre futura.');
         const ref = doc(db,'convocatoriasDocentes',eventId);
-        await setDoc(ref,{eventoId:eventId,titulo:selectedEvent.titulo || 'Muestra',fechaInicio:selectedEvent.fechaInicio || '',lugar:selectedEvent.lugar || '',abierta,cierreAt:fecha,docentes,updatedAt:serverTimestamp(),updatedBy:user().email});
+        await runTransaction(db, async tx => {
+          const [current, canonical] = await Promise.all([tx.get(ref), tx.get(doc(db, 'eventos', eventId))]);
+          if (current.exists() !== Boolean(previous) || timestampMillis(current.data()?.updatedAt) !== timestampMillis(previous?.updatedAt)) throw Error('La configuración cambió en otra ventana. Vuelve a abrirla para guardar.');
+          if (!canonical.exists() || abierta && ['Realizado','No realizado','Archivado'].includes(canonical.data().estado)) throw Error('Este evento ya está cerrado o no está disponible.');
+          const latestEvent = canonical.data();
+          tx.set(ref,{...current.data(),eventoId:eventId,titulo:latestEvent.titulo || 'Muestra',fechaInicio:latestEvent.fechaInicio || '',lugar:latestEvent.lugar || '',abierta,cierreAt:fecha,docentes,updatedAt:serverTimestamp(),updatedBy:user().email});
+        });
         const saved = await getDocFromServer(ref);
-        if (!saved.exists() || saved.data().abierta !== abierta) throw Error('No pude confirmar la configuración guardada.');
+        const stored = saved.data();
+        if (!saved.exists() || stored.abierta !== abierta || timestampMillis(stored.cierreAt) !== fecha.toMillis() || Object.keys(stored.docentes || {}).length !== Object.keys(docentes).length || Object.entries(docentes).some(([id,name]) => stored.docentes?.[id] !== name)) throw Error('No pude confirmar todos los docentes guardados. Vuelve a abrir la configuración.');
         result.textContent = 'Configuración guardada y verificada.'; toast(result.textContent); modal.close();
       } catch(error) { result.textContent = error.message; } finally { button.disabled = false; }
     };

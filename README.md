@@ -213,6 +213,10 @@ los archivos locales no despliega reglas ni inicializa documentos en producción
 
 Acceso: [docentes.html](./docentes.html). En cada evento, coordinación abre **Formato docentes → Configurar inscripciones**, selecciona los docentes y establece la fecha límite. Puede copiar el enlace de esa muestra y revisar las fichas recibidas.
 
+La lista de docentes se arma con los nombres ya asignados a participantes, las fichas existentes, Personas y otras muestras. **Seleccionar docentes de esta muestra** marca en un paso los docentes asignados; guardar confirma la habilitación. Las fichas conservan su identidad y enlace privado.
+
+Los campos de docente, responsable, equipo, lugar y estudiante sugieren nombres ya registrados. Al agregar estudiantes desde el padrón se puede asignar un docente a todo el lote. [Fuentes reutilizadas](./docs/reutilizacion-datos.md).
+
 Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
 
 Modelo, permisos y despliegue: [docs/formato-docentes.md](./docs/formato-docentes.md).

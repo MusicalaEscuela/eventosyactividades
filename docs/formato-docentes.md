@@ -2,6 +2,8 @@
 
 `docentes.html` abre el formulario sin iniciar sesión. El catálogo publicado por coordinación contiene únicamente el título, fecha, lugar, plazo y nombres de docentes habilitados. Los estudiantes y las instrucciones permanecen en fichas privadas.
 
+La configuración reúne automáticamente los nombres ya asignados a participantes, Personas, fichas guardadas y otras convocatorias. La coordinación puede seleccionar en un paso los docentes de esta muestra. Los nombres equivalentes no se repiten; prevalecen las identidades reservadas para conservar las fichas y sus enlaces.
+
 ## Guardado y regreso
 
 Cada combinación docente–muestra admite una ficha. La creación escribe de forma atómica una reserva en `convocatoriasDocentes/{eventoId}/reservas/{docenteId}` y la ficha en `fichasDocentes/{secreto}`. Las reglas rechazan una reserva huérfana, una ficha sin reserva, o una segunda ficha para la misma combinación.
