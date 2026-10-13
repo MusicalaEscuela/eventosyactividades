@@ -219,6 +219,8 @@ Los campos de docente, responsable, equipo, lugar y estudiante sugieren nombres 
 
 En Actividades, Responsable es un selector. Sus cinco estados son Pendiente, En curso, Bloqueada, Terminada y Cancelada, con ayudas en el formulario y las mismas columnas en el tablero. Los estados antiguos se muestran mediante equivalencias, conservando los documentos guardados.
 
+En Participantes, Docente es un selector con nombres reutilizados. **Ver historial de docentes** muestra las asignaciones de ese estudiante o ensamble en otras inscripciones; **Usar** elige un docente y **Guardar cambios** confirma la asignación.
+
 Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
 
 Modelo, permisos y despliegue: [docs/formato-docentes.md](./docs/formato-docentes.md).

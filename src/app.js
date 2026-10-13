@@ -3,6 +3,7 @@ import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-reutilizar";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
+import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
 import {
   auth,
   provider,
@@ -77,6 +78,8 @@ const state = {
   ripEstudiantes: [],
   participaciones: new Map(),     // clave de estudiante → presentaciones
   participantesRegistrados: [],
+  participacionesCargadas: false,
+  participacionesError: '',
   convocatoriasDocentes: [],
   filtroEstudiantes: { texto: "", nivel: "", presentado: "" },
   mostrarHistorialEventos: false,
@@ -422,7 +425,9 @@ function claveEstudiante(row) {
 function listenParticipaciones() {
   if (state.unsubParticipaciones) state.unsubParticipaciones();
   state.unsubParticipaciones = onSnapshot(collectionGroup(db, "muestras"), snapshot => {
-    state.participantesRegistrados = snapshot.docs.map(d => d.data());
+    state.participantesRegistrados = snapshot.docs.map(d => ({ ...d.data(), eventoId: d.ref.parent.parent?.id || '', muestraId: d.id }));
+    state.participacionesCargadas = true;
+    state.participacionesError = '';
     const indice = new Map();
     snapshot.docs.forEach(docSnap => {
       const data = docSnap.data() || {};
@@ -443,6 +448,8 @@ function listenParticipaciones() {
         if (!indice.has(clave)) indice.set(clave, []);
         indice.get(clave).push({
           eventoId,
+          muestraId: docSnap.id,
+          docente: data.docente || '',
           nombreLibre: String(nombre || data.estudianteGrupo || "").trim(),
           eventoTitulo: evento?.titulo || "Evento",
           fecha: evento?.fechaInicio || "",
@@ -461,6 +468,8 @@ function listenParticipaciones() {
   }, error => {
     console.error(error);
     toast(explicarError(error, "No pude leer el historial de participaciones"));
+    state.participacionesError = 'No pude consultar los docentes anteriores. Vuelve a cargar la página para intentarlo de nuevo.';
+    refreshParticipantTeacherContext();
   });
 }
 
@@ -799,7 +808,7 @@ function openStudentPicker(modo = "individual") {
     <div class="form-grid">
       ${annualSystem.areaField({ areaArtisticaId: "musica" })}
       <div id="pickerModalidad">${annualSystem.modalityField({}, "musica")}</div>
-      <label class="wide">Docente para los estudiantes seleccionados<input name="docente" maxlength="160" list="docentesDisponibles" value="${escapeHtml(assignedTeachers.length === 1 ? assignedTeachers[0].name : '')}" placeholder="Elige un docente ya registrado" /><span class="field-hint">Se asigna una sola vez a todo este grupo. Puedes dejarlo pendiente.</span></label>
+      <label class="wide">Docente para los estudiantes seleccionados<select name="docente">${participantTeacherOptions(assignedTeachers.length === 1 ? assignedTeachers[0].name : '')}</select><span class="field-hint">Se asigna una sola vez a todo este grupo. Puedes dejarlo pendiente.</span></label>
     </div>
     <p class="field-hint" id="pickerFiltroInfo"></p>
     <div class="picker-lista" id="pickerLista">${renderPickerLista()}</div>
@@ -1656,18 +1665,37 @@ function openChildDialog(tab, row = null) {
   const estudianteInput = modalForm.querySelector('[name="estudianteGrupo"]');
   if (estudianteInput) {
     const actualizarEstado = () => {
-      const est = buscarEnPadron(estudianteInput.value);
       const oculto = modalForm.querySelector('[name="studentId"]');
-      if (oculto) oculto.value = est?.studentId || "";
+      const ensemble = participantIsEnsemble(row);
+      const unchangedName = normalizarNombre(estudianteInput.value) === normalizarNombre(row?.estudianteGrupo);
+      const preservedId = unchangedName ? row?.studentId || '' : '';
+      const est = ensemble ? null : buscarEnPadron(estudianteInput.value, preservedId);
+      if (oculto) oculto.value = ensemble ? '' : preservedId || est?.studentId || '';
       const hint = modalForm.querySelector("#estadoEstudiante");
       if (hint) {
-        hint.textContent = estadoEstudianteHint({ estudianteGrupo: estudianteInput.value });
+        hint.textContent = estadoEstudianteHint({ ...row, estudianteGrupo: estudianteInput.value, studentId: oculto?.value || '' });
         hint.classList.toggle("hint-alerta", Boolean(est) && est.nivel !== "activo");
         hint.classList.toggle("hint-ok", Boolean(est) && est.nivel === "activo");
       }
+      refreshParticipantTeacherContext();
     };
     estudianteInput.addEventListener("input", actualizarEstado);
     estudianteInput.addEventListener("change", actualizarEstado);
+  }
+
+  if (tab === 'muestras') {
+    const teacher = modalForm.querySelector('#participantTeacherSelect');
+    teacher.addEventListener('focus', () => refreshParticipantTeacherContext());
+    const history = modalForm.querySelector('#participantTeacherHistory');
+    history.onclick = event => {
+      const button = event.target.closest('[data-use-participant-teacher]');
+      if (!button) return;
+      const name = button.dataset.useParticipantTeacher;
+      teacher.innerHTML = participantTeacherOptions(name, participantTeacherHistoryFromForm());
+      teacher.value = name;
+      teacher.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    refreshParticipantTeacherContext();
   }
 
   // Al escoger a alguien de la base de personas, se traen su rol y contacto.
@@ -1734,10 +1762,13 @@ function openChildDialog(tab, row = null) {
 }
 
 /** Busca a alguien del padrón de RIP por nombre exacto (sin tildes ni mayúsculas). */
-function buscarEnPadron(nombre) {
+function buscarEnPadron(nombre, preferredId = '') {
+  if (preferredId) return state.ripEstudiantes.find(e => e.studentId === preferredId) || null;
   const clave = ripNorm(nombre);
   if (!clave) return null;
-  return state.ripEstudiantes.find(e => e.claveNombre === clave || ripNorm(e.nombre) === clave) || null;
+  const matches = state.ripEstudiantes.filter(e => e.claveNombre === clave || ripNorm(e.nombre) === clave);
+  const identities = new Set(matches.map(e => e.studentId || e.claveNombre));
+  return (identities.size === 1 ? matches[0] : null) || null;
 }
 
 /**
@@ -1746,18 +1777,60 @@ function buscarEnPadron(nombre) {
  */
 function estadoEstudianteHint(row = {}) {
   const nombre = row.estudianteGrupo || "";
+  if (participantIsEnsemble(row)) return 'Ensamble: cada integrante conserva su seguimiento.';
   if (!nombre) {
     return state.ripEstado === "listo"
       ? "Empieza a escribir para buscar en el padrón de RIP."
       : "Conecta el padrón desde “Estudiantes” para ver el estado de cada uno.";
   }
-  const est = buscarEnPadron(nombre);
+  const est = buscarEnPadron(nombre, row.studentId || '');
+  if (!est && state.ripEstudiantes.filter(e => e.claveNombre === ripNorm(nombre) || ripNorm(e.nombre) === ripNorm(nombre)).length > 1) return 'Hay estudiantes con el mismo nombre. Usa Del padrón para elegir la ficha que corresponde.';
   if (!est) return "No está en el padrón de RIP. Se guarda igual (útil para grupos, ensambles o invitados).";
 
-  const previas = (state.participaciones.get(est.studentId) || state.participaciones.get(est.claveNombre) || []).length;
-  const historial = previas ? `Ya se presentó ${previas} ${previas === 1 ? "vez" : "veces"}.` : "Todavía no se ha presentado.";
+  const records = (state.participaciones.get(est.studentId) || state.participaciones.get(est.claveNombre) || [])
+    .filter(record => record.eventoId !== (row.eventoId || state.selectedEventId));
+  const previousEvents = new Set(records.map(record => record.eventoId).filter(Boolean)).size;
+  const historial = state.participacionesError ? 'El historial no está disponible ahora.' : !state.participacionesCargadas ? 'Consultando registros de muestras…' : previousEvents ? `Tiene registros en ${previousEvents} otra${previousEvents === 1 ? '' : 's'} muestra${previousEvents === 1 ? '' : 's'}.` : 'No tiene otros registros en muestras.';
   if (est.nivel === "activo") return `✅ Activo en RIP. ${historial}`;
   return `⚠️ ${est.etiqueta} en RIP — se puede inscribir igual. ${historial}`;
+}
+
+const participantIsEnsemble = row => Boolean(row?.esEnsamble || row?.tipo === 'Ensamble' || row?.integrantes?.length);
+
+function participantTeacherOptions(selected = '', history = []) {
+  const allTeachers = collectReusableContext({ people: docentesYaUsados(), children: state.childData, participations: state.participantesRegistrados }).teachers;
+  const groups = buildParticipantTeacherOptions({ selected, currentTeachers: state.childData.muestras.map(row => row.docente), allTeachers, history });
+  return `<option value="" ${selected ? '' : 'selected'}>Sin asignar</option>${groups.map(group => `<optgroup label="${escapeHtml(group.label)}">${group.options.map(option => `<option value="${escapeHtml(option.name)}" ${option.name === selected ? 'selected' : ''}>${escapeHtml(option.name)}</option>`).join('')}</optgroup>`).join('')}`;
+}
+
+function participantTeacherHistoryFor(row = {}) {
+  if (!state.participacionesCargadas || state.participacionesError) return [];
+  return teacherHistoryForStudent({ studentId: row.studentId || '', name: row.estudianteGrupo || '', isEnsamble: participantIsEnsemble(row), participations: state.participantesRegistrados, events: state.eventos, currentEventId: row.eventoId || state.selectedEventId, currentParticipantId: row.id || '', knownStudents: state.ripEstudiantes });
+}
+
+function participantTeacherHistoryFromForm() {
+  const holder = modalForm.querySelector('#participantTeacherHistory');
+  if (!holder) return [];
+  return participantTeacherHistoryFor({ estudianteGrupo: modalForm.querySelector('[name="estudianteGrupo"]')?.value || '', studentId: modalForm.querySelector('[name="studentId"]')?.value || '', esEnsamble: holder.dataset.ensemble === 'true', id: holder.dataset.participantId, eventoId: holder.dataset.eventId });
+}
+
+function refreshParticipantTeacherContext() {
+  if (!modal.open || !state.user) return;
+  const teacher = modalForm.querySelector('#participantTeacherSelect');
+  const holder = modalForm.querySelector('#participantTeacherHistory');
+  if (!teacher || !holder) return;
+  const name = modalForm.querySelector('[name="estudianteGrupo"]')?.value.trim() || '';
+  const hint = modalForm.querySelector('#estadoEstudiante');
+  if (hint) hint.textContent = estadoEstudianteHint({ estudianteGrupo: name, studentId: modalForm.querySelector('[name="studentId"]')?.value || '', esEnsamble: holder.dataset.ensemble === 'true', id: holder.dataset.participantId, eventoId: holder.dataset.eventId });
+  const history = participantTeacherHistoryFromForm();
+  const markup = participantTeacherOptions(teacher.value, history);
+  if (teacher._optionsMarkup !== markup) { teacher.innerHTML = markup; teacher._optionsMarkup = markup; }
+  const wasOpen = holder.querySelector('details')?.open;
+  if (state.participacionesError) holder.innerHTML = `<p class="field-hint" role="status">${escapeHtml(state.participacionesError)}</p>`;
+  else if (!name) holder.innerHTML = '<p class="field-hint">Elige un estudiante o grupo para consultar sus docentes en otras muestras.</p>';
+  else if (!state.participacionesCargadas) holder.innerHTML = '<p class="field-hint" role="status">Cargando docentes usados anteriormente…</p>';
+  else if (!history.length) holder.innerHTML = '<p class="field-hint">No hay otras asignaciones docentes que podamos vincular a este estudiante o grupo.</p>';
+  else holder.innerHTML = `<details ${wasOpen ? 'open' : ''}><summary>Ver historial de docentes (${history.length})</summary><p class="field-hint">Estas son asignaciones guardadas en muestras; puedes reutilizar un docente antes de guardar.</p><div class="participant-teacher-records">${history.map(record => `<article><div><strong>${escapeHtml(record.docente)}</strong><p>${escapeHtml(record.eventoTitulo)} · ${escapeHtml(normalizeDate(record.fecha))}${record.eventoEstado ? ` · ${escapeHtml(record.eventoEstado)}` : ''}${record.nombreEnsamble ? `<br>Ensamble: ${escapeHtml(record.nombreEnsamble)}` : ''}</p></div><button type="button" class="small-btn" data-use-participant-teacher="${escapeHtml(record.docente)}">Usar</button></article>`).join('')}</div></details>`;
 }
 
 function activityResponsibleOptions(selected = "") {
@@ -1805,7 +1878,8 @@ function childForm(tab, row = {}) {
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
         ${annualSystem.areaField(row)}
-        <label>Docente<input name="docente" list="docentesDisponibles" value="${escapeHtml(row.docente || "")}" /></label>
+        <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
+        <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
         <label class="wide">Repertorio / actividad (una o varias obras)
           <div id="obrasLista">${(obrasDe(row).length ? obrasDe(row) : [""]).map(o => campoObra(o)).join("")}</div>
           <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
@@ -2486,6 +2560,7 @@ function syncDatalists() {
     ...state.ripEstudiantes.filter(e => e.nivel === 'activo').map(e => ({ name: e.nombre, detail: e.etiqueta })),
     ...context.students
   ]);
+  refreshParticipantTeacherContext();
 }
 
 function renderPeopleCards() {
@@ -2693,6 +2768,8 @@ onAuthStateChanged(auth, user => {
     state.personas = [];
     state.convocatoriasDocentes = [];
     state.participantesRegistrados = [];
+    state.participacionesCargadas = false;
+    state.participacionesError = '';
     state.ripEstudiantes = [];
     state.ripEstado = "desconectado";
     state.participaciones = new Map();
