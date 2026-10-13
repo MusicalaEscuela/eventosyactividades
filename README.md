@@ -217,6 +217,8 @@ La lista de docentes se arma con los nombres ya asignados a participantes, las f
 
 Los campos de docente, responsable, equipo, lugar y estudiante sugieren nombres ya registrados. Al agregar estudiantes desde el padrón se puede asignar un docente a todo el lote. [Fuentes reutilizadas](./docs/reutilizacion-datos.md).
 
+En Actividades, Responsable es un selector. Sus cinco estados son Pendiente, En curso, Bloqueada, Terminada y Cancelada, con ayudas en el formulario y las mismas columnas en el tablero. Los estados antiguos se muestran mediante equivalencias, conservando los documentos guardados.
+
 Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
 
 Modelo, permisos y despliegue: [docs/formato-docentes.md](./docs/formato-docentes.md).

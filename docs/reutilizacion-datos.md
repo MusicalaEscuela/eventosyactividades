@@ -10,6 +10,7 @@ Los formularios reutilizan datos existentes. Una sugerencia no crea una persona,
 | Lugar del evento | Base de lugares y lugares ya usados por los eventos | Elegir el lugar sugerido |
 | Estudiante o ensamble | Estudiantes activos de RIP, participantes ya registrados e integrantes de ensambles | Elegir o escribir el nombre; el estado de RIP conserva su aviso |
 | Alta de estudiantes por lote | Padrón RIP, área y modalidad existentes, nombres de docentes ya usados | Seleccionar estudiantes y asignar un docente una sola vez al lote |
+| Responsable de una actividad | Áreas y equipos de las plantillas, Personas y responsables ya usados | Elegir en un selector; los nombres guardados se conservan disponibles |
 
 Las variantes de espacios, mayúsculas y tildes se agrupan en las sugerencias. Los identificadores y nombres exactos de fichas y catálogos ya guardados tienen prioridad para conservar reservas y enlaces privados. Si existen dos identidades reservadas con nombres equivalentes, se muestran para revisión y no se fusionan.
 

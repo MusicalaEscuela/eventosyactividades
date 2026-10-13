@@ -2,6 +2,7 @@ import { createAnnualSystem } from "./muestras-anual.js";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-reutilizar";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
+import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import {
   auth,
   provider,
@@ -120,7 +121,10 @@ const STATUS_CLASS = {
   "Pendiente": "neutral",
   "Confirmado": "success",
   "Cancelado": "danger",
-  "Bloqueado": "danger"
+  "Bloqueado": "danger",
+  "Bloqueada": "danger",
+  "Terminada": "success",
+  "Cancelada": "neutral"
 };
 
 const CHECKLIST_TEMPLATES = {
@@ -237,6 +241,8 @@ const KANBAN_COLUMNS = [
 
 // Pestañas que tienen estado y por tanto se pueden ver como tablero.
 const KANBAN_TABS = ["actividades", "muestras", "equipo", "rider", "checklist", "documentos"];
+const boardColumns = tab => tab === "actividades" ? ACTIVITY_COLUMNS : KANBAN_COLUMNS;
+const boardState = (tab, value) => tab === "actividades" ? normalizeActivityState(value) : value || "";
 
 // Campo que hace de título en cada tipo de registro.
 const TITULO_CAMPO = {
@@ -1124,10 +1130,13 @@ function clearSelection() {
 }
 
 function calculateProgress() {
-  const items = [...state.childData.actividades, ...state.childData.muestras, ...state.childData.checklist, ...state.childData.documentos];
-  if (!items.length) return { done: 0, total: 0, percent: 0 };
-  const done = items.filter(item => ["Listo", "Confirmado", "Realizado"].includes(item.estado)).length;
-  return { done, total: items.length, percent: Math.round((done / items.length) * 100) };
+  const activities = state.childData.actividades.filter(item => normalizeActivityState(item.estado) !== "Cancelada");
+  const cancelledActivities = state.childData.actividades.length - activities.length;
+  const others = [...state.childData.muestras, ...state.childData.checklist, ...state.childData.documentos];
+  const total = activities.length + others.length;
+  const done = activities.filter(item => normalizeActivityState(item.estado) === "Terminada").length
+    + others.filter(item => ["Listo", "Confirmado", "Realizado"].includes(item.estado)).length;
+  return { done, total, percent: total ? Math.round((done / total) * 100) : 0, cancelledActivities };
 }
 
 function renderDetail() {
@@ -1190,6 +1199,7 @@ function renderDetail() {
       <div class="progress-wrap">
         <div class="progress-bar"><div style="width:${progress.percent}%"></div></div>
         <div class="progress-meta"><span>Avance operativo</span><strong>${progress.done}/${progress.total} ítems · ${progress.percent}%</strong></div>
+        ${progress.cancelledActivities ? `<p class="field-hint">${progress.cancelledActivities} actividad${progress.cancelledActivities === 1 ? '' : 'es'} cancelada${progress.cancelledActivities === 1 ? '' : 's'} · fuera del cálculo de avance</p>` : ''}
       </div>
     </section>
 
@@ -1289,13 +1299,14 @@ function prioridadClase(prioridad) {
 
 function renderKanban(tab) {
   const rows = state.childData[tab] || [];
-  const columnas = KANBAN_COLUMNS.map(col => ({
+  const columns = boardColumns(tab);
+  const columnas = columns.map(col => ({
     ...col,
-    items: rows.filter(row => col.estados.includes(row.estado || ""))
+    items: rows.filter(row => col.estados.includes(boardState(tab, row.estado)))
   }));
   // Cualquier estado raro cae en la primera columna para que nada se pierda.
-  const conocidos = KANBAN_COLUMNS.flatMap(col => col.estados);
-  const huerfanos = rows.filter(row => !conocidos.includes(row.estado || ""));
+  const conocidos = columns.flatMap(col => col.estados);
+  const huerfanos = rows.filter(row => !conocidos.includes(boardState(tab, row.estado)));
   columnas[0].items = [...columnas[0].items, ...huerfanos];
 
   return `<div class="board">${columnas.map(col => `
@@ -1324,9 +1335,9 @@ function renderKanban(tab) {
 
 /** Mueve un registro al soltarlo en otra columna del tablero. */
 async function moveCard(tab, id, columnaId) {
-  const columna = KANBAN_COLUMNS.find(col => col.id === columnaId);
+  const columna = boardColumns(tab).find(col => col.id === columnaId);
   const row = getChildById(tab, id);
-  if (!columna || !row || columna.estados.includes(row.estado || "")) return;
+  if (!columna || !row || columna.estados.includes(boardState(tab, row.estado))) return;
   try {
     await updateDoc(doc(db, COLLECTION, state.selectedEventId, tab, id), {
       estado: columna.estado,
@@ -1367,7 +1378,7 @@ function renderTabContent(tab) {
       escapeHtml(row.area || "General"),
       normalizeDate(row.fechaLimite || row.fecha),
       escapeHtml(row.responsable || ""),
-      badge(row.estado),
+      badge(normalizeActivityState(row.estado)),
       escapeHtml(row.prioridad || "Media"),
       escapeHtml(row.notas || ""),
       rowActions(tab, row.id)
@@ -1565,6 +1576,14 @@ function openChildDialog(tab, row = null) {
   const content = childForm(tab, row || {});
   setModal(content, isEdit ? "Guardar cambios" : "Agregar");
 
+  if (tab === "actividades") {
+    const activityState = modalForm.querySelector('[name="estado"]');
+    const stateHelp = modalForm.querySelector('#activityStateHelp');
+    activityState.addEventListener('change', () => { stateHelp.textContent = ACTIVITY_STATE_HELP[activityState.value] || 'Elige cómo va esta actividad.'; });
+    const responsible = modalForm.querySelector('[name="responsable"]');
+    responsible.addEventListener('focus', () => { responsible.innerHTML = activityResponsibleOptions(responsible.value); });
+  }
+
   // El formulario de participantes parte del área artística y muestra solo los
   // campos de Música, Danza, Teatro o Artes Plásticas que correspondan.
   const areaArtisticaSelect = modalForm.querySelector('[name="areaArtisticaId"]');
@@ -1670,6 +1689,7 @@ function openChildDialog(tab, row = null) {
     const formData = new FormData(modalForm);
     const data = {};
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
+    if (tab === "actividades") data.estado = normalizeActivityState(data.estado);
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
       const cantidadInvitados = Math.max(0, Number.parseInt(formData.get("invitadosCantidad"), 10) || 0);
@@ -1740,6 +1760,21 @@ function estadoEstudianteHint(row = {}) {
   return `⚠️ ${est.etiqueta} en RIP — se puede inscribir igual. ${historial}`;
 }
 
+function activityResponsibleOptions(selected = "") {
+  const context = collectReusableContext({ people: docentesYaUsados(), events: state.eventos, children: state.childData, participations: state.participantesRegistrados });
+  const groups = uniqueSuggestions(ACTIVITY_RESPONSIBLE_GROUPS);
+  const groupNames = new Set(groups.map(row => normalizarNombre(row.name)));
+  const people = context.people.filter(row => !groupNames.has(normalizarNombre(row.name)));
+  const current = String(selected || "");
+  if (current && ![...groups, ...people].some(row => normalizarNombre(row.name) === normalizarNombre(current))) people.push({ name: current });
+  const options = rows => rows.map(row => {
+    const isSelected = Boolean(current) && normalizarNombre(row.name) === normalizarNombre(current);
+    const value = isSelected ? current : row.name;
+    return `<option value="${escapeHtml(value)}" ${isSelected ? 'selected' : ''}>${escapeHtml(row.name)}</option>`;
+  }).join('');
+  return `<option value="" ${current ? '' : 'selected'}>Sin asignar</option><optgroup label="Áreas y equipos">${options(groups)}</optgroup>${people.length ? `<optgroup label="Personas y responsables ya registrados">${options(people.sort((a,b) => a.name.localeCompare(b.name, 'es')))}</optgroup>` : ''}`;
+}
+
 function childForm(tab, row = {}) {
   if (tab === "actividades") {
     return `
@@ -1748,8 +1783,8 @@ function childForm(tab, row = {}) {
         <label class="wide">Actividad<input name="titulo" required value="${escapeHtml(row.titulo || "")}" /></label>
         <label>Área<select name="area">${selectOptions(FIELD_OPTIONS.areas, row.area || "General")}</select></label>
         <label>Fecha límite<input type="date" name="fechaLimite" value="${escapeHtml(row.fechaLimite || "")}" /></label>
-        <label>Responsable<input name="responsable" list="personasDisponibles" value="${escapeHtml(row.responsable || "")}" /></label>
-        <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
+        <label>Responsable<select name="responsable">${activityResponsibleOptions(row.responsable)}</select><span class="field-hint">Elige un área, equipo o persona ya registrada. Puedes añadir personas desde Base de personas.</span></label>
+        <label>Estado<select name="estado">${opcionesConSeleccion(ACTIVITY_STATES, normalizeActivityState(row.estado))}</select><span class="field-hint" id="activityStateHelp">${escapeHtml(ACTIVITY_STATE_HELP[normalizeActivityState(row.estado)] || 'Elige cómo va esta actividad.')}</span></label>
         <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, row.prioridad || "Media")}</select></label>
         <label class="wide">Notas<textarea name="notas">${escapeHtml(row.notas || "")}</textarea></label>
       </div>

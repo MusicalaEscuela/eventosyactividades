@@ -85,9 +85,13 @@ Campos principales:
 - `area`
 - `fechaLimite`
 - `responsable`
-- `estado`
+- `estado`: Pendiente, En curso, Bloqueada, Terminada o Cancelada.
 - `prioridad`
 - `notas`
+
+Responsable se elige en un selector con áreas y equipos de las plantillas, Personas y nombres ya usados en eventos. Los valores anteriores permanecen disponibles.
+
+Los estados antiguos se interpretan al mostrar una actividad: Listo, Confirmado y Realizado corresponden a Terminada; En riesgo y Bloqueado a Bloqueada; Cancelado a Cancelada. Los documentos guardados no se migran; al editar o mover una actividad se guarda el estado simplificado. Las canceladas siguen visibles y se excluyen del cálculo de avance operativo.
 
 ## eventos/{eventoId}/muestras/{muestraId}
 
@@ -184,6 +188,8 @@ alimentan las sugerencias de responsable, docente, encargado, equipo y proveedor
 - `notas`
 
 ## Vista de tablero (Kanban)
+
+Actividades utiliza las cinco columnas Pendiente, En curso, Bloqueada, Terminada y Cancelada. Sus estados antiguos se interpretan con las equivalencias descritas arriba. La tabla siguiente corresponde a las otras pestañas.
 
 Las pestañas con estado (actividades, muestras, equipo, rider, checklist y documentos)
 se pueden ver como tablero. Las columnas agrupan estados afines y al arrastrar una
