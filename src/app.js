@@ -1105,7 +1105,7 @@ function renderEventList() {
       <div class="event-card-meta">
         ${badge(evento.estado)}
         <span class="badge neutral">${escapeHtml(evento.tipo || "Evento")}</span>
-        <span class="badge neutral">${normalizeDate(evento.fechaInicio)}</span>
+        <span class="badge neutral">${normalizeDate(evento.fechaInicio)}${evento.horaInicio ? ` · ${escapeHtml(evento.horaInicio)}` : ""}</span>
       </div>
       <span class="muted">${escapeHtml(evento.responsable || "Sin responsable")}</span>
     </button>
@@ -1193,7 +1193,7 @@ function renderDetail() {
           <div class="event-card-meta">
             ${badge(evento.estado)}
             <span class="badge neutral">Prioridad: ${escapeHtml(evento.prioridad || "Media")}</span>
-            <span class="badge neutral">${normalizeDate(evento.fechaInicio)}${evento.fechaFin && evento.fechaFin !== evento.fechaInicio ? ` → ${normalizeDate(evento.fechaFin)}` : ""}</span>
+            <span class="badge neutral">${normalizeDate(evento.fechaInicio)}${evento.horaInicio ? ` · ${escapeHtml(evento.horaInicio)}` : ""}</span>
           </div>
           <p class="muted">${escapeHtml(evento.objetivo || "Sin objetivo todavía.")}</p>
           <div class="actions">
@@ -1578,8 +1578,8 @@ function openEventDialog(evento = null) {
       <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoEvento, evento?.estado || "Planeación")}</select></label>
       <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, evento?.prioridad || "Media")}</select></label>
       <label>Responsable<input name="responsable" list="personasDisponibles" value="${escapeHtml(evento?.responsable || "")}" placeholder="Alek, Cata, equipo..." /></label>
-      <label>Fecha inicio<input type="date" name="fechaInicio" value="${escapeHtml(evento?.fechaInicio || "")}" /></label>
-      <label>Fecha fin<input type="date" name="fechaFin" value="${escapeHtml(evento?.fechaFin || "")}" /></label>
+      <label>Fecha<input type="date" name="fechaInicio" value="${escapeHtml(evento?.fechaInicio || "")}" /></label>
+      <label>Hora<input type="time" name="horaInicio" value="${escapeHtml(evento?.horaInicio || "")}" /></label>
       <label>Lugar<input name="lugar" list="lugaresDisponibles" value="${escapeHtml(evento?.lugar || "")}" /></label>
       <label>Público<input name="publico" value="${escapeHtml(evento?.publico || "")}" /></label>
       <label>Presupuesto<input name="presupuesto" value="${escapeHtml(evento?.presupuesto || "")}" placeholder="$" /></label>

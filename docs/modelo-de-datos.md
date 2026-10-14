@@ -75,7 +75,9 @@ Campos principales:
 - `cierre`: opcional al cerrar desde la interfaz: `{resultado: realizado | no-realizado, cerradoAt, cerradoBy}`. Los eventos cerrados salen de la lista diaria y quedan disponibles con **Ver historial de eventos**; no se borran ni se alteran sus subcolecciones.
 - `prioridad`: Baja, Media, Alta, Crítica.
 - `responsable`: persona o equipo encargado.
-- `fechaInicio`, `fechaFin`: formato YYYY-MM-DD.
+- `fechaInicio`: fecha del evento en formato YYYY-MM-DD; el formulario muestra **Fecha**.
+- `horaInicio`: hora del evento en formato HH:mm; opcional si aún no se ha definido. Se muestra junto a la fecha en la lista y el detalle.
+- `fechaFin`: campo anterior conservado para registros existentes y ciclos del sistema anual. El formulario de evento no lo pide ni lo modifica.
 - `lugar`, `publico`, `presupuesto`, `objetivo`, `notas`.
 - `createdAt`, `updatedAt`, `createdBy`, `updatedBy`.
 
