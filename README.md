@@ -221,7 +221,7 @@ En Actividades, Responsable es un selector. Sus cinco estados son Pendiente, En 
 
 En Participantes, Docente es un selector con nombres reutilizados. **Ver historial de docentes** muestra las asignaciones de ese estudiante o ensamble en otras inscripciones; **Usar** elige un docente y **Guardar cambios** confirma la asignación.
 
-Minuto a minuto ofrece momentos predeterminados, nombres personalizables y un selector de encargados. Se muestra ordenado por hora y no pide Bloque ni Espacio.
+Minuto a minuto ofrece momentos predeterminados, nombres personalizables y un selector de encargados. Se muestra ordenado por día y hora y no pide Bloque ni Espacio. Al agregar un momento, propone la siguiente hora según el final más tardío del programa (hora + duración); por ejemplo, 18:30 + 5 minutos propone 18:35. La hora sigue editable, se muestra el final de cada momento y el formulario actualiza su vista previa al cambiar la duración. Si faltan datos para calcular el siguiente inicio, solicita completarlos. Los programas que cruzan medianoche conservan el día correspondiente.
 
 Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
 

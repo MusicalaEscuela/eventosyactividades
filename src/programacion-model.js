@@ -37,3 +37,50 @@ export function nextMomentTitle(previousType, nextType, title) {
   if (!normalized || (previous && normalized === normalizarNombre(previous.label))) return next?.label || '';
   return original;
 }
+
+function startSeconds(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/.exec(value.trim());
+  return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] || 0) : null;
+}
+
+function durationSeconds(value) {
+  if (!['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim())) return null;
+  const minutes = typeof value === 'number' ? value : Number(value.trim().replace(',', '.'));
+  if (!Number.isFinite(minutes) || minutes < 0) return null;
+  const seconds = Math.round(minutes * 60);
+  return Number.isSafeInteger(seconds) ? seconds : null;
+}
+
+/** End times include an absolute program day, so midnight never wraps silently. */
+export function getMomentEnd(row = {}) {
+  const start = startSeconds(row?.hora);
+  const duration = durationSeconds(row?.duracionMin);
+  const rawDay = row?.diaPrograma;
+  const emptyDay = rawDay == null || (typeof rawDay === 'string' && !rawDay.trim());
+  const day = emptyDay ? 0 : ['number', 'string'].includes(typeof rawDay) ? Number(rawDay) : NaN;
+  if (start == null || duration == null || !Number.isSafeInteger(day) || day < 0) return null;
+  const totalSeconds = day * 86400 + start + duration;
+  if (!Number.isSafeInteger(totalSeconds)) return null;
+  const clock = totalSeconds % 86400;
+  const hours = String(Math.floor(clock / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor(clock / 60) % 60).padStart(2, '0');
+  const seconds = clock % 60;
+  return { hora: `${hours}:${minutes}${seconds ? ':' + String(seconds).padStart(2, '0') : ''}`, diaPrograma: Math.floor(totalSeconds / 86400), totalSeconds };
+}
+
+/** Suggest the latest complete end; incomplete timed records require review. */
+export function getNextMoment(rows = []) {
+  let latest = null;
+  let sourceItem = '';
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (row?.hora == null || (typeof row.hora === 'string' && !row.hora.trim())) continue;
+    const end = getMomentEnd(row);
+    if (!end) return { hora: '', diaPrograma: 0, reason: 'Completa la hora y la duración de los momentos con horario; revisa también el día del programa.' };
+    if (!latest || end.totalSeconds > latest.totalSeconds) {
+      latest = end;
+      sourceItem = typeof row.item === 'string' ? row.item : '';
+    }
+  }
+  return latest ? { hora: latest.hora, diaPrograma: latest.diaPrograma, sourceItem } : { hora: '', diaPrograma: 0, reason: 'Indica la hora del primer momento.' };
+}

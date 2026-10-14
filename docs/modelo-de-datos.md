@@ -205,9 +205,11 @@ tarjeta se escribe el `estado` de la columna destino:
 
 ## eventos/{eventoId}/programacion/{momentoId}
 
-`hora`, `duracionMin`, `tipoMomento`, `item`, `encargado` y `montaje`.
+`hora`, `duracionMin`, `diaPrograma`, `tipoMomento`, `item`, `encargado` y `montaje`.
 
-El formulario y la tabla no utilizan Bloque ni Espacio. Los valores antiguos permanecen en los documentos existentes. La programación se muestra por hora; los momentos sin hora quedan al final.
+El formulario y la tabla no utilizan Bloque ni Espacio. Los valores antiguos permanecen en los documentos existentes. La programación se muestra por día y hora; los momentos sin hora quedan al final. `diaPrograma` es un desplazamiento entero desde el inicio (0 = día 1); si falta, se interpreta como 0. El control de día sólo aparece cuando el programa continúa después de medianoche.
+
+Al agregar se propone el mayor final calculado entre los momentos con hora (`hora` + `duracionMin`). `hora` admite HH:mm o HH:mm:ss y una duración de medio minuto conserva los segundos. Los momentos con hora y datos incompletos o inválidos impiden sugerir un inicio; una duración explícita de 0 es válida. La propuesta y la vista previa del final no modifican los horarios guardados y sólo se rellenan al crear un momento, manteniendo la hora editable.
 
 `tipoMomento` identifica bienvenida, presentación artística, cambio de presentación, transición, cambio de luces, cambio de sonido, montaje, pausa, avisos o cierre. `personalizado` permite otro momento. El nombre `item` sigue siendo editable; los nombres personalizados no se sobrescriben al elegir otro tipo. Encargado reutiliza el selector de áreas, equipos y personas registradas.
 

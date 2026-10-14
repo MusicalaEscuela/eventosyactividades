@@ -4,7 +4,7 @@ import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js"
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle } from "./programacion-model.js";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment } from "./programacion-model.js?v=20261013-hora-siguiente";
 import {
   auth,
   provider,
@@ -1061,7 +1061,9 @@ function listenChildren(eventId) {
       state.childData[child] = snapshot.docs
         .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
         .sort((a, b) => {
-          if (child === 'programacion') return String(a.hora || '99:99').localeCompare(String(b.hora || '99:99'))
+          if (child === 'programacion') return Number(!a.hora) - Number(!b.hora)
+            || momentDay(a) - momentDay(b)
+            || String(a.hora || '99:99').localeCompare(String(b.hora || '99:99'))
             || Number(a.createdAt?.seconds || 0) - Number(b.createdAt?.seconds || 0)
             || String(a.id).localeCompare(String(b.id));
           return String(a.fechaLimite || a.fecha || a.createdAt?.seconds || "").localeCompare(String(b.fechaLimite || b.fecha || b.createdAt?.seconds || ""));
@@ -1438,8 +1440,12 @@ function renderTabContent(tab) {
   }
 
   if (tab === "programacion") {
-    return table(["Hora", "Momento / actividad", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
-      escapeHtml(row.hora || ""),
+    const next = getNextMoment(rows);
+    const nextHint = next.hora
+      ? `<strong>Siguiente hora: ${escapeHtml(momentTimeLabel(next))}</strong><span>Se completa al agregar un momento.</span>`
+      : `<span>${escapeHtml(next.reason)}</span>`;
+    return `<div class="progress-meta" role="status">${nextHint}</div>` + table(["Hora", "Momento / actividad", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
+      momentTimeCell(row),
       momentTitle(row), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(row.duracionMin)} min` : "",
       escapeHtml(row.montaje || ""), rowActions(tab, row.id)
     ]));
@@ -1467,6 +1473,21 @@ function renderTabContent(tab) {
     escapeHtml(row.createdByName || row.createdByEmail || ""),
     rowActions(tab, row.id)
   ]));
+}
+
+function momentDay(row) {
+  const day = Number(row?.diaPrograma || 0);
+  return Number.isSafeInteger(day) && day >= 0 ? day : 0;
+}
+
+function momentTimeLabel(row) {
+  const day = momentDay(row);
+  return `${row.hora || ''}${day > 0 ? ` (día ${day + 1})` : ''}`;
+}
+
+function momentTimeCell(row) {
+  const end = getMomentEnd(row);
+  return escapeHtml(momentTimeLabel(row)) + (end ? `<div class="field-hint">Hasta ${escapeHtml(momentTimeLabel(end))}</div>` : '');
 }
 
 function momentTitle(row) {
@@ -1618,6 +1639,16 @@ function openChildDialog(tab, row = null) {
     });
     const owner = modalForm.querySelector('[name="encargado"]');
     owner.addEventListener('focus', () => { owner.innerHTML = activityResponsibleOptions(owner.value); });
+    const hour = modalForm.querySelector('[name="hora"]');
+    const duration = modalForm.querySelector('[name="duracionMin"]');
+    const day = modalForm.querySelector('[name="diaEvento"]');
+    const endHint = modalForm.querySelector('#momentEndHint');
+    const updateEnd = () => {
+      const end = getMomentEnd({ hora: hour.value, duracionMin: duration.value, diaPrograma: Number(day.value) - 1 });
+      endHint.textContent = end ? `Finaliza a las ${momentTimeLabel(end)}.` : 'Indica la hora y la duración para ver cuándo finaliza.';
+    };
+    [hour, duration, day].forEach(input => input.addEventListener('input', updateEnd));
+    updateEnd();
   }
 
   // El formulario de participantes parte del área artística y muestra solo los
@@ -1749,6 +1780,10 @@ function openChildDialog(tab, row = null) {
       if (!getMomentPreset(data.tipoMomento) && data.tipoMomento !== 'personalizado') { toast('Elige el tipo de momento.'); return; }
       data.item = data.item || getMomentPreset(data.tipoMomento)?.label || '';
       if (!data.item) { toast('Escribe el nombre del momento.'); return; }
+      const programDay = Number(data.diaEvento);
+      if (!Number.isSafeInteger(programDay) || programDay < 1) { toast('Indica un día válido para el programa.'); return; }
+      data.diaPrograma = programDay - 1;
+      delete data.diaEvento;
     }
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
@@ -1962,9 +1997,16 @@ function childForm(tab, row = {}) {
 
   if (tab === "programacion") {
     const type = resolveMomentType(row);
+    const next = row.id ? null : getNextMoment(state.childData.programacion);
+    const hour = row.id ? row.hora || '' : row.hora || next.hora;
+    const day = row.id ? momentDay(row) : next.diaPrograma;
+    const showDay = day > 0 || (state.childData.programacion || []).some(moment => momentDay(moment) > 0);
+    const hourHint = next ? `<span class="field-hint">${escapeHtml(next.hora ? 'Hora sugerida según el final del programa. Puedes cambiarla.' : next.reason)}</span>` : '';
     return `<h3>${row.id ? "Editar momento" : "Nuevo momento del evento"}</h3><div class="form-grid">
-      <label>Hora<input type="time" name="hora" value="${escapeHtml(row.hora || "")}" /></label>
+      <label>Hora<input type="time" step="1" name="hora" value="${escapeHtml(hour)}" />${hourHint}</label>
       <label>Duración min.<input type="number" min="0" step="0.5" name="duracionMin" value="${escapeHtml(row.duracionMin ?? "")}" /></label>
+      ${showDay ? `<label class="wide">Día del programa<input type="number" name="diaEvento" min="1" step="1" required value="${day + 1}" /><span class="field-hint">Día 1 es el inicio del programa; día 2 es después de medianoche.</span></label>` : '<input type="hidden" name="diaEvento" value="1" />'}
+      <div class="field-hint wide" id="momentEndHint" role="status" aria-live="polite"></div>
       <label class="wide">Tipo de momento<select name="tipoMomento" required><option value="" ${type ? '' : 'selected'}>Elige un momento</option>${MOMENT_PRESETS.map(preset => `<option value="${preset.id}" ${preset.id === type ? 'selected' : ''}>${escapeHtml(preset.label)}</option>`).join('')}<option value="personalizado" ${type === 'personalizado' ? 'selected' : ''}>Otro momento</option></select><span class="field-hint" id="momentTypeHelp">${escapeHtml(getMomentPreset(type)?.help || 'Elige una opción o crea otro momento.')}</span></label>
       <label class="wide">Nombre o detalle del momento<input required name="item" value="${escapeHtml(row.item || "")}" placeholder="Puedes personalizar el nombre elegido" /></label>
       <label class="wide">Encargado<select name="encargado">${activityResponsibleOptions(row.encargado || '')}</select></label>
