@@ -98,6 +98,41 @@ const state = {
   actividadesComunesSincronizadas: false
 };
 
+// Snapshot listeners replace these source arrays. Cache derived lists until
+// their sources change, so focusing or typing never rebuilds the whole roster.
+let ensembleCandidateCache;
+let reusableContextCache;
+let teacherCandidatesCache;
+let ripIndexCache;
+const sameReferences = (previous, current) => previous?.length === current.length && current.every((value, index) => previous[index] === value);
+
+function ripStudentIndex() {
+  if (ripIndexCache?.source === state.ripEstudiantes) return ripIndexCache;
+  const byId = new Map();
+  const byName = new Map();
+  for (const student of state.ripEstudiantes) {
+    if (student.studentId && !byId.has(student.studentId)) byId.set(student.studentId, student);
+    for (const key of new Set([student.claveNombre, ripNorm(student.nombre)].filter(Boolean))) {
+      if (!byName.has(key)) byName.set(key, []);
+      byName.get(key).push(student);
+    }
+  }
+  ripIndexCache = { source: state.ripEstudiantes, byId, byName };
+  return ripIndexCache;
+}
+
+function reusableContextSources() {
+  return [state.personas, state.convocatoriasDocentes, state.lugares, state.eventos, state.participantesRegistrados, ...Object.values(state.childData)];
+}
+
+function reusableEventContext() {
+  const sources = reusableContextSources();
+  if (!sameReferences(reusableContextCache?.sources, sources)) {
+    reusableContextCache = { sources, context: collectReusableContext({ people: docentesYaUsados(), places: state.lugares, events: state.eventos, children: state.childData, participations: state.participantesRegistrados }) };
+  }
+  return reusableContextCache.context;
+}
+
 const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
 const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, teacherCandidates: docentesYaUsados, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
@@ -1629,14 +1664,25 @@ function openEventDialog(evento = null) {
 }
 
 function ensembleCandidates() {
-  return buildEnsembleCandidates({ participants: state.childData.muestras, students: state.ripEstudiantes }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const sources = [state.childData.muestras, state.ripEstudiantes];
+  if (sameReferences(ensembleCandidateCache?.sources, sources)) return ensembleCandidateCache.rows;
+  const candidates = buildEnsembleCandidates({ participants: sources[0], students: sources[1] }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const nameCounts = new Map();
+  for (const candidate of candidates) {
+    const name = normalizarNombre(candidate.nombre);
+    nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+  }
+  const rows = candidates.map((candidate, index) => ({
+    ...candidate,
+    searchText: normalizarNombre([candidate.nombre, candidate.instrumento, candidate.docente].join(' ')),
+    label: candidate.nombre + (nameCounts.get(normalizarNombre(candidate.nombre)) > 1 ? ` · registro ${index + 1}` : '') + (candidate.detail ? ` · ${candidate.detail}` : '')
+  }));
+  ensembleCandidateCache = { sources, rows };
+  return rows;
 }
 
 function ensembleCandidateOptions(candidates) {
-  return '<option value="">Elige un estudiante registrado</option>' + candidates.map((candidate, index) => {
-    const repeated = candidates.filter(other => normalizarNombre(other.nombre) === normalizarNombre(candidate.nombre)).length > 1;
-    return `<option value="${escapeHtml(candidate.key)}">${escapeHtml(candidate.nombre + (repeated ? ` · registro ${index + 1}` : '') + (candidate.detail ? ` · ${candidate.detail}` : ''))}</option>`;
-  }).join('');
+  return '<option value="">Elige un estudiante registrado</option>' + candidates.map(candidate => `<option value="${escapeHtml(candidate.key)}">${escapeHtml(candidate.label)}</option>`).join('');
 }
 
 function ensembleMemberFromCandidate(candidate) {
@@ -1687,8 +1733,27 @@ function openChildDialog(tab, row = null) {
     const fields = modalForm.querySelector('#ensembleMembers');
     const list = modalForm.querySelector('#ensembleMembersList');
     const choice = modalForm.querySelector('#ensembleStudentChoice');
+    const search = modalForm.querySelector('#ensembleStudentSearch');
+    const results = modalForm.querySelector('#ensembleSearchResults');
     const title = modalForm.querySelector('#participantNameLabel');
-    let candidates = ensembleCandidates();
+    let candidates = null;
+    let previousSearch = null;
+    const refreshCandidates = () => {
+      const updated = ensembleCandidates();
+      const query = normalizarNombre(search.value);
+      if (candidates === updated && previousSearch === query) return;
+      candidates = updated;
+      previousSearch = query;
+      const terms = query.split(' ').filter(Boolean);
+      const matches = terms.length ? candidates.filter(candidate => terms.every(term => candidate.searchText.includes(term))) : candidates;
+      // Keep the native chooser small; search still covers every recorded student.
+      const visible = matches.slice(0, 60);
+      const selected = candidates.find(candidate => candidate.key === choice.value);
+      if (selected && !visible.includes(selected)) visible.push(selected);
+      choice.innerHTML = ensembleCandidateOptions(visible);
+      choice.value = selected?.key || '';
+      results.textContent = !matches.length ? 'No hay coincidencias. Prueba con otro nombre o instrumento.' : matches.length > 60 ? `${matches.length} estudiantes encontrados. Mostrando los primeros 60; escribe para encontrar a quien necesitas.` : `${matches.length} estudiante${matches.length === 1 ? '' : 's'} encontrado${matches.length === 1 ? '' : 's'}.`;
+    };
     const readMembers = () => {
       list.querySelectorAll('[data-member-instrument]').forEach(input => { ensembleMembers[Number(input.dataset.memberInstrument)].instrumento = input.value.trim(); });
     };
@@ -1699,6 +1764,7 @@ function openChildDialog(tab, row = null) {
       readMembers();
       const group = type.value === 'Ensamble';
       fields.classList.toggle('hidden', !group);
+      if (group) refreshCandidates();
       title.textContent = group ? 'Nombre del ensamble' : 'Estudiante o grupo';
       const name = modalForm.querySelector('[name="estudianteGrupo"]');
       if (group) name.removeAttribute('list');
@@ -1710,10 +1776,12 @@ function openChildDialog(tab, row = null) {
       studentId.value = group ? '' : preservedId || buscarEnPadron(name.value)?.studentId || '';
       refreshParticipantTeacherContext();
     };
-    choice.addEventListener('focus', () => { candidates = ensembleCandidates(); choice.innerHTML = ensembleCandidateOptions(candidates); });
+    search.addEventListener('input', refreshCandidates);
+    choice.addEventListener('focus', refreshCandidates);
     modalForm.querySelector('#addEnsembleStudent').addEventListener('click', () => {
       readMembers();
-      const candidate = candidates.find(option => option.key === choice.value);
+      refreshCandidates();
+      const candidate = candidates?.find(option => option.key === choice.value);
       if (!candidate) { toast('Elige un estudiante de la lista.'); return; }
       const next = normalizeEnsembleMembers([...ensembleMembers, ensembleMemberFromCandidate(candidate)]);
       if (next.length === ensembleMembers.length) { toast('Este estudiante ya está en el ensamble.'); return; }
@@ -1898,6 +1966,7 @@ function openChildDialog(tab, row = null) {
   // se guarda su studentId y se avisa el estado (sin bloquear a los inactivos).
   const estudianteInput = modalForm.querySelector('[name="estudianteGrupo"]');
   if (estudianteInput) {
+    let historyTimer;
     const actualizarEstado = () => {
       const oculto = modalForm.querySelector('[name="studentId"]');
       const ensemble = modalForm.querySelector('[name="tipoParticipacion"]')?.value === 'Ensamble';
@@ -1911,10 +1980,19 @@ function openChildDialog(tab, row = null) {
         hint.classList.toggle("hint-alerta", Boolean(est) && est.nivel !== "activo");
         hint.classList.toggle("hint-ok", Boolean(est) && est.nivel === "activo");
       }
-      refreshParticipantTeacherContext();
     };
-    estudianteInput.addEventListener("input", actualizarEstado);
-    estudianteInput.addEventListener("change", actualizarEstado);
+    estudianteInput.addEventListener("input", () => {
+      actualizarEstado();
+      clearTimeout(historyTimer);
+      historyTimer = setTimeout(() => {
+        if (estudianteInput.isConnected) refreshParticipantTeacherContext();
+      }, 250);
+    });
+    estudianteInput.addEventListener("change", () => {
+      actualizarEstado();
+      clearTimeout(historyTimer);
+      refreshParticipantTeacherContext();
+    });
   }
 
   if (tab === 'muestras') {
@@ -2045,10 +2123,11 @@ function openChildDialog(tab, row = null) {
 
 /** Busca a alguien del padrón de RIP por nombre exacto (sin tildes ni mayúsculas). */
 function buscarEnPadron(nombre, preferredId = '') {
-  if (preferredId) return state.ripEstudiantes.find(e => e.studentId === preferredId) || null;
+  const index = ripStudentIndex();
+  if (preferredId) return index.byId.get(preferredId) || null;
   const clave = ripNorm(nombre);
   if (!clave) return null;
-  const matches = state.ripEstudiantes.filter(e => e.claveNombre === clave || ripNorm(e.nombre) === clave);
+  const matches = index.byName.get(clave) || [];
   const identities = new Set(matches.map(e => e.studentId || e.claveNombre));
   return (identities.size === 1 ? matches[0] : null) || null;
 }
@@ -2066,7 +2145,7 @@ function estadoEstudianteHint(row = {}) {
       : "Conecta el padrón desde “Estudiantes” para ver el estado de cada uno.";
   }
   const est = buscarEnPadron(nombre, row.studentId || '');
-  if (!est && state.ripEstudiantes.filter(e => e.claveNombre === ripNorm(nombre) || ripNorm(e.nombre) === ripNorm(nombre)).length > 1) return 'Hay estudiantes con el mismo nombre. Usa Del padrón para elegir la ficha que corresponde.';
+  if (!est && (ripStudentIndex().byName.get(ripNorm(nombre)) || []).length > 1) return 'Hay estudiantes con el mismo nombre. Usa Del padrón para elegir la ficha que corresponde.';
   if (!est) return "No está en el padrón de RIP. Se guarda igual (útil para grupos, ensambles o invitados).";
 
   const records = (state.participaciones.get(est.studentId) || state.participaciones.get(est.claveNombre) || [])
@@ -2080,7 +2159,7 @@ function estadoEstudianteHint(row = {}) {
 const participantIsEnsemble = row => Boolean(row?.esEnsamble || row?.tipo === 'Ensamble' || row?.integrantes?.length);
 
 function participantTeacherOptions(selected = '', history = []) {
-  const allTeachers = collectReusableContext({ people: docentesYaUsados(), children: state.childData, participations: state.participantesRegistrados }).teachers;
+  const allTeachers = reusableEventContext().teachers;
   const groups = buildParticipantTeacherOptions({ selected, currentTeachers: state.childData.muestras.map(row => row.docente), allTeachers, history });
   return `<option value="" ${selected ? '' : 'selected'}>Sin asignar</option>${groups.map(group => `<optgroup label="${escapeHtml(group.label)}">${group.options.map(option => `<option value="${escapeHtml(option.name)}" ${option.name === selected ? 'selected' : ''}>${escapeHtml(option.name)}</option>`).join('')}</optgroup>`).join('')}`;
 }
@@ -2102,6 +2181,8 @@ function refreshParticipantTeacherContext() {
   const holder = modalForm.querySelector('#participantTeacherHistory');
   if (!teacher || !holder) return;
   const name = modalForm.querySelector('[name="estudianteGrupo"]')?.value.trim() || '';
+  const sources = [name, modalForm.querySelector('[name="studentId"]')?.value || '', holder.dataset.ensemble, holder.dataset.participantId, holder.dataset.eventId, teacher.value, state.ripEstado, state.ripEstudiantes, state.participantesRegistrados, state.participaciones, state.participacionesCargadas, state.participacionesError, state.selectedEventId, ...reusableContextSources()];
+  if (sameReferences(holder._contextSources, sources)) return;
   const hint = modalForm.querySelector('#estadoEstudiante');
   if (hint) hint.textContent = estadoEstudianteHint({ estudianteGrupo: name, studentId: modalForm.querySelector('[name="studentId"]')?.value || '', esEnsamble: holder.dataset.ensemble === 'true', id: holder.dataset.participantId, eventoId: holder.dataset.eventId });
   const history = participantTeacherHistoryFromForm();
@@ -2113,10 +2194,13 @@ function refreshParticipantTeacherContext() {
   else if (!state.participacionesCargadas) holder.innerHTML = '<p class="field-hint" role="status">Cargando docentes usados anteriormente…</p>';
   else if (!history.length) holder.innerHTML = '<p class="field-hint">No hay otras asignaciones docentes que podamos vincular a este estudiante o grupo.</p>';
   else holder.innerHTML = `<details ${wasOpen ? 'open' : ''}><summary>Ver historial de docentes (${history.length})</summary><p class="field-hint">Estas son asignaciones guardadas en muestras; puedes reutilizar un docente antes de guardar.</p><div class="participant-teacher-records">${history.map(record => `<article><div><strong>${escapeHtml(record.docente)}</strong><p>${escapeHtml(record.eventoTitulo)} · ${escapeHtml(normalizeDate(record.fecha))}${record.eventoEstado ? ` · ${escapeHtml(record.eventoEstado)}` : ''}${record.nombreEnsamble ? `<br>Ensamble: ${escapeHtml(record.nombreEnsamble)}` : ''}</p></div><button type="button" class="small-btn" data-use-participant-teacher="${escapeHtml(record.docente)}">Usar</button></article>`).join('')}</div></details>`;
+  // Rendering options may canonicalize the selected spelling.
+  sources[5] = teacher.value;
+  holder._contextSources = sources;
 }
 
 function activityResponsibleOptions(selected = "") {
-  const context = collectReusableContext({ people: docentesYaUsados(), events: state.eventos, children: state.childData, participations: state.participantesRegistrados });
+  const context = reusableEventContext();
   const groups = uniqueSuggestions(ACTIVITY_RESPONSIBLE_GROUPS);
   const groupNames = new Set(groups.map(row => normalizarNombre(row.name)));
   const people = context.people.filter(row => !groupNames.has(normalizarNombre(row.name)));
@@ -2160,7 +2244,7 @@ function childForm(tab, row = {}) {
           <input type="hidden" name="studentId" value="${escapeHtml(row.studentId || "")}" />
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
-        <fieldset class="wide form-section ${participantIsEnsemble(row) ? '' : 'hidden'}" id="ensembleMembers"><legend>Integrantes de esta presentación</legend><div class="ensemble-picker"><label>Estudiante registrado<select id="ensembleStudentChoice">${ensembleCandidateOptions(ensembleCandidates())}</select></label><button type="button" class="small-btn" id="addEnsembleStudent">Agregar integrante</button></div><div id="ensembleMembersList"></div><p class="field-hint">El ensamble cuenta como una presentación. Cada integrante conserva su identidad y su instrumento. Las inscripciones individuales siguen siendo presentaciones independientes; revisa sus obras si ya no se tocarán como solista.</p></fieldset>
+        <fieldset class="wide form-section ${participantIsEnsemble(row) ? '' : 'hidden'}" id="ensembleMembers"><legend>Integrantes de esta presentación</legend><label>Buscar estudiante<input type="search" id="ensembleStudentSearch" placeholder="Nombre, instrumento o docente" autocomplete="off" /></label><p class="field-hint" id="ensembleSearchResults" role="status"></p><div class="ensemble-picker"><label>Estudiante registrado<select id="ensembleStudentChoice"><option value="">Elige un estudiante registrado</option></select></label><button type="button" class="small-btn" id="addEnsembleStudent">Agregar integrante</button></div><div id="ensembleMembersList"></div><p class="field-hint">El ensamble cuenta como una presentación. Cada integrante conserva su identidad y su instrumento. Las inscripciones individuales siguen siendo presentaciones independientes; revisa sus obras si ya no se tocarán como solista.</p></fieldset>
         ${annualSystem.areaField(row)}
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
@@ -2845,20 +2929,29 @@ async function deletePlace(lugar) {
 /* ==================== Base maestra de personas ==================== */
 
 function docentesYaUsados() {
+  const sources = [state.personas, state.convocatoriasDocentes, state.participantesRegistrados, ...Object.values(state.childData)];
+  if (sameReferences(teacherCandidatesCache?.sources, sources)) return teacherCandidatesCache.rows;
   const recorded = collectReusableContext({ children: state.childData, participations: state.participantesRegistrados }).teachers;
-  return [...state.personas,
+  const rows = [...state.personas,
     ...recorded.map(row => ({ nombre: row.name, tipo: 'Docente', source: 'Participaciones registradas' })),
     ...state.convocatoriasDocentes.flatMap(call => Object.values(call.docentes || {}).map(nombre => ({ nombre, tipo: 'Docente', source: 'Nombre habilitado en otra muestra' })))
   ];
+  teacherCandidatesCache = { sources, rows };
+  return rows;
 }
 
 // Se reutilizan los nombres ya guardados sin crear registros nuevos en las bases.
 function syncDatalists() {
-  const context = collectReusableContext({ people: docentesYaUsados(), places: state.lugares, events: state.eventos, children: state.childData, participations: state.participantesRegistrados });
+  const context = reusableEventContext();
   const fill = (id, entries) => {
     const list = $(`#${id}`);
-    if (list) list.innerHTML = uniqueSuggestions(entries).sort((a,b) => a.name.localeCompare(b.name, 'es'))
+    if (!list) return;
+    const markup = uniqueSuggestions(entries).sort((a,b) => a.name.localeCompare(b.name, 'es'))
       .map(row => `<option value="${escapeHtml(row.name)}">${escapeHtml(row.detail || '')}</option>`).join('');
+    if (list._suggestionsMarkup !== markup) {
+      list.innerHTML = markup;
+      list._suggestionsMarkup = markup;
+    }
   };
   fill('personasDisponibles', context.people);
   fill('docentesDisponibles', context.teachers);
