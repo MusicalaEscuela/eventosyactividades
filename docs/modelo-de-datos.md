@@ -209,6 +209,10 @@ tarjeta se escribe el `estado` de la columna destino:
 
 `hora`, `duracionMin`, `diaPrograma`, `tipoMomento`, `item`, `encargado` y `montaje`.
 
+En una presentación artística, `participanteId` vincula una inscripción de `eventos/{eventoId}/muestras`; `estudianteGrupo` y `repertorios` conservan el nombre y las obras seleccionadas como instantánea del programa. El selector muestra sólo estudiantes y grupos inscritos en ese evento, distinguiendo inscripciones con el mismo nombre. Se proponen el título, el docente y la duración explícitos del participante cuando el campo está vacío o conserva el último autollenado; los valores personalizados se respetan. La duración corresponde a la presentación completa: elegir menos obras requiere revisarla, sin repartir minutos automáticamente.
+
+Al editar se conservan las obras guardadas aunque se hayan cambiado o retirado de la inscripción. Una inscripción retirada mantiene la instantánea anterior y muestra un aviso; una vinculación nueva requiere que el participante siga disponible. Elegir otro tipo de momento limpia el vínculo al guardar, sin modificar Participantes. Los momentos anteriores sin vínculo siguen admitiendo texto manual. Los títulos antiguos de repertorio se tratan como una sola obra, sin dividir por barras.
+
 El formulario y la tabla no utilizan Bloque ni Espacio. Los valores antiguos permanecen en los documentos existentes. La programación se muestra por día y hora; los momentos sin hora quedan al final. `diaPrograma` es un desplazamiento entero desde el inicio (0 = día 1); si falta, se interpreta como 0. El control de día sólo aparece cuando el programa continúa después de medianoche.
 
 Al agregar se propone el mayor final calculado entre los momentos con hora (`hora` + `duracionMin`). `hora` admite HH:mm o HH:mm:ss y una duración de medio minuto conserva los segundos. Los momentos con hora y datos incompletos o inválidos impiden sugerir un inicio; una duración explícita de 0 es válida. La propuesta y la vista previa del final no modifican los horarios guardados y sólo se rellenan al crear un momento, manteniendo la hora editable.

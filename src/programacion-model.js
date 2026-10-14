@@ -84,3 +84,43 @@ export function getNextMoment(rows = []) {
   }
   return latest ? { hora: latest.hora, diaPrograma: latest.diaPrograma, sourceItem } : { hora: '', diaPrograma: 0, reason: 'Indica la hora del primer momento.' };
 }
+
+const originalText = value => typeof value === 'string' && value.trim() ? value : '';
+
+/** Use registered work titles verbatim; a slash remains part of a title. */
+export function getParticipantWorks(row = {}) {
+  const participant = row && typeof row === 'object' && !Array.isArray(row) ? row : {};
+  let works = Array.isArray(participant.repertorios) ? participant.repertorios.filter(originalText) : [];
+  if (!works.length && originalText(participant.repertorio)) works = [participant.repertorio];
+  if (!works.length) {
+    const area = normalizarNombre(participant.areaArtisticaId || participant.areaArtisticaNombre || participant.area);
+    if (['danza', 'teatro', 'artes-plasticas', 'artes plasticas'].includes(area)) {
+      const title = originalText(participant.tituloObra) || originalText(participant.nombrePresentacion);
+      if (title) works = [title];
+    }
+  }
+  const seen = new Set();
+  return works.filter(work => {
+    const normalized = normalizarNombre(work);
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+/** Snapshot only explicitly selected registered works and participant data. */
+export function buildMomentPresentation(participant = {}, selectedWorks = []) {
+  const row = participant && typeof participant === 'object' && !Array.isArray(participant) ? participant : {};
+  const selected = new Set((Array.isArray(selectedWorks) ? selectedWorks : []).filter(originalText).map(normalizarNombre));
+  const nombre = originalText(row.estudianteGrupo) || originalText(row.nombrePresentacion) || 'Participante';
+  const rawDuration = row.duracionMin;
+  const duration = typeof rawDuration === 'number' ? rawDuration : originalText(rawDuration) ? Number(rawDuration.trim().replace(',', '.')) : NaN;
+  return {
+    participanteId: originalText(row.id),
+    estudianteGrupo: nombre,
+    repertorios: getParticipantWorks(row).filter(work => selected.has(normalizarNombre(work))),
+    item: `Presentación artística · ${nombre}`,
+    encargado: typeof row.docente === 'string' ? row.docente : '',
+    duracionMin: Number.isFinite(duration) && duration >= 0 ? duration : ''
+  };
+}

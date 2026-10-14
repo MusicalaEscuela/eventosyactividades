@@ -4,7 +4,7 @@ import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js"
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment } from "./programacion-model.js?v=20261013-hora-siguiente";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation } from "./programacion-model.js?v=20261013-presentaciones-inscritas";
 import {
   auth,
   provider,
@@ -1494,7 +1494,22 @@ function momentTitle(row) {
   const preset = getMomentPreset(resolveMomentType(row));
   const category = preset && normalizarNombre(preset.label) !== normalizarNombre(row.item)
     ? `<div class="field-hint">${escapeHtml(preset.label)}</div>` : '';
-  return escapeHtml(row.item || '') + category;
+  const presentation = resolveMomentType(row) === 'presentacion' && row.participanteId
+    ? `<div class="field-hint"><strong>Estudiante / grupo: ${escapeHtml(row.estudianteGrupo || 'Participante')}</strong></div>${getParticipantWorks(row).map(work => `<div>${escapeHtml(work)}</div>`).join('')}` : '';
+  return escapeHtml(row.item || '') + category + presentation;
+}
+
+function momentParticipantOptions(row = {}) {
+  const participants = [...(state.childData.muestras || [])].sort((a, b) => String(a.estudianteGrupo || '').localeCompare(String(b.estudianteGrupo || ''), 'es'));
+  const selectedId = row.participanteId || '';
+  const options = participants.map((participant, index) => {
+    const name = participant.estudianteGrupo || participant.nombrePresentacion || 'Participante';
+    const repeated = participants.filter(other => normalizarNombre(other.estudianteGrupo || other.nombrePresentacion) === normalizarNombre(name)).length > 1;
+    const detail = repeated ? ` · inscripción ${index + 1}${getParticipantWorks(participant)[0] ? ` · ${getParticipantWorks(participant)[0].slice(0, 60)}` : ''}` : participant.esEnsamble ? ' · ensamble' : '';
+    return `<option value="${escapeHtml(participant.id)}" ${participant.id === selectedId ? 'selected' : ''}>${escapeHtml(name + detail)}</option>`;
+  });
+  if (selectedId && !participants.some(participant => participant.id === selectedId)) options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(row.estudianteGrupo || 'Participante guardado')} · inscripción retirada</option>`);
+  return `<option value="" ${selectedId ? '' : 'selected'}>Elige un estudiante o grupo</option>` + options.join('');
 }
 
 function table(headers, rows) {
@@ -1618,6 +1633,7 @@ function openChildDialog(tab, row = null) {
   // row llega como null al agregar: el default de childForm solo cubre undefined.
   const content = childForm(tab, row || {});
   setModal(content, isEdit ? "Guardar cambios" : "Agregar");
+  let momentPresentation = null;
 
   if (tab === "actividades") {
     const activityState = modalForm.querySelector('[name="estado"]');
@@ -1631,11 +1647,20 @@ function openChildDialog(tab, row = null) {
     const type = modalForm.querySelector('[name="tipoMomento"]');
     const item = modalForm.querySelector('[name="item"]');
     const help = modalForm.querySelector('#momentTypeHelp');
+    const presentationFields = modalForm.querySelector('#momentPresentationFields');
+    const participant = modalForm.querySelector('[name="participanteId"]');
+    const worksBox = modalForm.querySelector('#momentWorks');
+    const presentationHint = modalForm.querySelector('#momentPresentationHint');
+    const autoValues = new Map();
     let previousType = type.value;
     type.addEventListener('change', () => {
-      item.value = nextMomentTitle(previousType, type.value, item.value);
+      const previousTitle = autoValues.get(item) === item.value ? getMomentPreset(previousType)?.label || item.value : item.value;
+      item.value = nextMomentTitle(previousType, type.value, previousTitle);
       previousType = type.value;
       help.textContent = getMomentPreset(type.value)?.help || 'Escribe el nombre del momento y sus indicaciones.';
+      presentationFields.classList.toggle('hidden', type.value !== 'presentacion');
+      presentationFields.disabled = type.value !== 'presentacion';
+      if (type.value === 'presentacion') applyPresentationDefaults();
     });
     const owner = modalForm.querySelector('[name="encargado"]');
     owner.addEventListener('focus', () => { owner.innerHTML = activityResponsibleOptions(owner.value); });
@@ -1649,6 +1674,60 @@ function openChildDialog(tab, row = null) {
     };
     [hour, duration, day].forEach(input => input.addEventListener('input', updateEnd));
     updateEnd();
+
+    const selectedWorks = () => [...worksBox.querySelectorAll('[name="obraPresentacion"]:checked')].map(input => input.value);
+    const updatePresentationHint = () => {
+      if (!momentPresentation) {
+        presentationHint.textContent = (state.childData.muestras || []).length ? 'Elige un participante para cargar sus obras registradas.' : 'Primero registra los estudiantes o grupos en Participantes.';
+        return;
+      }
+      const total = getParticipantWorks(momentPresentation).length;
+      const count = selectedWorks().length;
+      const unavailable = !(state.childData.muestras || []).some(source => source.id === participant.value);
+      const countText = total ? `${count} de ${total} obra${total === 1 ? '' : 's'} seleccionada${count === 1 ? '' : 's'}.` : 'Este participante aún no tiene obras registradas; puedes completarlas en Participantes.';
+      const durationText = total && count < total ? ' La duración registrada corresponde a la presentación completa. Ajusta los minutos si presentarás sólo parte del repertorio.' : ' Puedes ajustar la duración y el encargado.';
+      presentationHint.textContent = countText + durationText + (unavailable ? ' La inscripción fue retirada; se conserva la presentación guardada.' : '');
+    };
+    const fillFromParticipant = (input, value, generic = '') => {
+      if (!input.value.trim() || autoValues.get(input) === input.value || generic && input.value === generic) {
+        const text = String(value ?? '');
+        if (input === owner) owner.innerHTML = activityResponsibleOptions(text);
+        input.value = text;
+        autoValues.set(input, input.value);
+      }
+    };
+    function applyPresentationDefaults() {
+      if (!momentPresentation) return;
+      const defaults = buildMomentPresentation(momentPresentation, selectedWorks());
+      fillFromParticipant(item, defaults.item, getMomentPreset('presentacion').label);
+      fillFromParticipant(owner, defaults.encargado);
+      fillFromParticipant(duration, defaults.duracionMin);
+      updateEnd();
+    }
+    const loadPresentation = (initial = false) => {
+      const id = participant.value;
+      const source = (state.childData.muestras || []).find(candidate => candidate.id === id);
+      const savedLink = Boolean(isEdit && id && row.participanteId === id);
+      const keepSaved = savedLink && (initial || !source);
+      const storedWorks = keepSaved ? getParticipantWorks(row) : [];
+      const works = getParticipantWorks({ repertorios: [...storedWorks, ...getParticipantWorks(source)] });
+      momentPresentation = id && (source || savedLink) ? {
+        ...(source || {}), id,
+        estudianteGrupo: keepSaved ? row.estudianteGrupo || source?.estudianteGrupo || 'Participante' : source.estudianteGrupo || source.nombrePresentacion || 'Participante',
+        repertorios: works, repertorio: '',
+        docente: source?.docente || '', duracionMin: source?.duracionMin ?? ''
+      } : null;
+      const chosen = new Set((keepSaved ? storedWorks : works).map(normalizarNombre));
+      worksBox.innerHTML = works.length ? `<p class="field-hint">Obras / actividades que presentará</p><div class="check-grid">${works.map(work => `<label class="check-card"><input type="checkbox" name="obraPresentacion" value="${escapeHtml(work)}" ${chosen.has(normalizarNombre(work)) ? 'checked' : ''} /><span>${escapeHtml(work)}</span></label>`).join('')}</div>` : '';
+      if (!initial && type.value === 'presentacion') applyPresentationDefaults();
+      updatePresentationHint();
+    };
+    participant.addEventListener('change', () => loadPresentation());
+    participant.addEventListener('focus', () => {
+      participant.innerHTML = momentParticipantOptions({ participanteId: participant.value, estudianteGrupo: momentPresentation?.estudianteGrupo || row?.estudianteGrupo || '' });
+    });
+    worksBox.addEventListener('change', updatePresentationHint);
+    loadPresentation(true);
   }
 
   // El formulario de participantes parte del área artística y muestra solo los
@@ -1784,6 +1863,21 @@ function openChildDialog(tab, row = null) {
       if (!Number.isSafeInteger(programDay) || programDay < 1) { toast('Indica un día válido para el programa.'); return; }
       data.diaPrograma = programDay - 1;
       delete data.diaEvento;
+      delete data.obraPresentacion;
+      data.participanteId = '';
+      data.estudianteGrupo = '';
+      data.repertorios = [];
+      const participantId = String(formData.get('participanteId') || '');
+      if (data.tipoMomento === 'presentacion' && participantId) {
+        const previousLink = isEdit && row.participanteId === participantId;
+        if (!momentPresentation || momentPresentation.id !== participantId || !previousLink && !(state.childData.muestras || []).some(participant => participant.id === participantId)) { toast('Esta inscripción ya no está disponible. Elige otro participante.'); return; }
+        const works = formData.getAll('obraPresentacion');
+        if (getParticipantWorks(momentPresentation).length && !works.length && !(previousLink && !getParticipantWorks(row).length)) { toast('Elige al menos una obra que presentará.'); return; }
+        const presentation = buildMomentPresentation(momentPresentation, works);
+        data.participanteId = presentation.participanteId;
+        data.estudianteGrupo = presentation.estudianteGrupo;
+        data.repertorios = presentation.repertorios;
+      }
     }
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
@@ -2008,6 +2102,7 @@ function childForm(tab, row = {}) {
       ${showDay ? `<label class="wide">Día del programa<input type="number" name="diaEvento" min="1" step="1" required value="${day + 1}" /><span class="field-hint">Día 1 es el inicio del programa; día 2 es después de medianoche.</span></label>` : '<input type="hidden" name="diaEvento" value="1" />'}
       <div class="field-hint wide" id="momentEndHint" role="status" aria-live="polite"></div>
       <label class="wide">Tipo de momento<select name="tipoMomento" required><option value="" ${type ? '' : 'selected'}>Elige un momento</option>${MOMENT_PRESETS.map(preset => `<option value="${preset.id}" ${preset.id === type ? 'selected' : ''}>${escapeHtml(preset.label)}</option>`).join('')}<option value="personalizado" ${type === 'personalizado' ? 'selected' : ''}>Otro momento</option></select><span class="field-hint" id="momentTypeHelp">${escapeHtml(getMomentPreset(type)?.help || 'Elige una opción o crea otro momento.')}</span></label>
+      <fieldset class="wide form-section ${type === 'presentacion' ? '' : 'hidden'}" id="momentPresentationFields" ${type === 'presentacion' ? '' : 'disabled'}><legend>Participante y obras</legend><div class="form-grid"><label class="wide">Estudiante o grupo inscrito<select name="participanteId">${momentParticipantOptions(row)}</select></label><div class="wide" id="momentWorks"></div><p class="field-hint wide" id="momentPresentationHint" role="status" aria-live="polite"></p></div></fieldset>
       <label class="wide">Nombre o detalle del momento<input required name="item" value="${escapeHtml(row.item || "")}" placeholder="Puedes personalizar el nombre elegido" /></label>
       <label class="wide">Encargado<select name="encargado">${activityResponsibleOptions(row.encargado || '')}</select></label>
       <label class="wide">Montaje, transición y recursos<textarea name="montaje">${escapeHtml(row.montaje || "")}</textarea></label>
