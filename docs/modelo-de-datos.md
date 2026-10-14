@@ -205,7 +205,11 @@ tarjeta se escribe el `estado` de la columna destino:
 
 ## eventos/{eventoId}/programacion/{momentoId}
 
-`hora`, `duracionMin`, `bloque`, `espacio`, `item`, `encargado` y `montaje`.
+`hora`, `duracionMin`, `tipoMomento`, `item`, `encargado` y `montaje`.
+
+El formulario y la tabla no utilizan Bloque ni Espacio. Los valores antiguos permanecen en los documentos existentes. La programación se muestra por hora; los momentos sin hora quedan al final.
+
+`tipoMomento` identifica bienvenida, presentación artística, cambio de presentación, transición, cambio de luces, cambio de sonido, montaje, pausa, avisos o cierre. `personalizado` permite otro momento. El nombre `item` sigue siendo editable; los nombres personalizados no se sobrescriben al elegir otro tipo. Encargado reutiliza el selector de áreas, equipos y personas registradas.
 
 ## eventos/{eventoId}/equipo/{personaId}
 

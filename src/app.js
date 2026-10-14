@@ -4,6 +4,7 @@ import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js"
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle } from "./programacion-model.js";
 import {
   auth,
   provider,
@@ -1059,7 +1060,12 @@ function listenChildren(eventId) {
     const unsub = onSnapshot(collection(db, COLLECTION, eventId, child), snapshot => {
       state.childData[child] = snapshot.docs
         .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-        .sort((a, b) => String(a.fechaLimite || a.fecha || a.createdAt?.seconds || "").localeCompare(String(b.fechaLimite || b.fecha || b.createdAt?.seconds || "")));
+        .sort((a, b) => {
+          if (child === 'programacion') return String(a.hora || '99:99').localeCompare(String(b.hora || '99:99'))
+            || Number(a.createdAt?.seconds || 0) - Number(b.createdAt?.seconds || 0)
+            || String(a.id).localeCompare(String(b.id));
+          return String(a.fechaLimite || a.fecha || a.createdAt?.seconds || "").localeCompare(String(b.fechaLimite || b.fecha || b.createdAt?.seconds || ""));
+        });
       syncDatalists();
       renderDetail();
     }, error => {
@@ -1432,9 +1438,9 @@ function renderTabContent(tab) {
   }
 
   if (tab === "programacion") {
-    return table(["Hora", "Bloque", "Espacio", "Actividad / presentación", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
-      escapeHtml(row.hora || ""), escapeHtml(row.bloque || ""), escapeHtml(row.espacio || ""),
-      escapeHtml(row.item || ""), escapeHtml(row.encargado || ""), row.duracionMin ? `${escapeHtml(row.duracionMin)} min` : "",
+    return table(["Hora", "Momento / actividad", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
+      escapeHtml(row.hora || ""),
+      momentTitle(row), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(row.duracionMin)} min` : "",
       escapeHtml(row.montaje || ""), rowActions(tab, row.id)
     ]));
   }
@@ -1461,6 +1467,13 @@ function renderTabContent(tab) {
     escapeHtml(row.createdByName || row.createdByEmail || ""),
     rowActions(tab, row.id)
   ]));
+}
+
+function momentTitle(row) {
+  const preset = getMomentPreset(resolveMomentType(row));
+  const category = preset && normalizarNombre(preset.label) !== normalizarNombre(row.item)
+    ? `<div class="field-hint">${escapeHtml(preset.label)}</div>` : '';
+  return escapeHtml(row.item || '') + category;
 }
 
 function table(headers, rows) {
@@ -1593,6 +1606,20 @@ function openChildDialog(tab, row = null) {
     responsible.addEventListener('focus', () => { responsible.innerHTML = activityResponsibleOptions(responsible.value); });
   }
 
+  if (tab === 'programacion') {
+    const type = modalForm.querySelector('[name="tipoMomento"]');
+    const item = modalForm.querySelector('[name="item"]');
+    const help = modalForm.querySelector('#momentTypeHelp');
+    let previousType = type.value;
+    type.addEventListener('change', () => {
+      item.value = nextMomentTitle(previousType, type.value, item.value);
+      previousType = type.value;
+      help.textContent = getMomentPreset(type.value)?.help || 'Escribe el nombre del momento y sus indicaciones.';
+    });
+    const owner = modalForm.querySelector('[name="encargado"]');
+    owner.addEventListener('focus', () => { owner.innerHTML = activityResponsibleOptions(owner.value); });
+  }
+
   // El formulario de participantes parte del área artística y muestra solo los
   // campos de Música, Danza, Teatro o Artes Plásticas que correspondan.
   const areaArtisticaSelect = modalForm.querySelector('[name="areaArtisticaId"]');
@@ -1718,6 +1745,11 @@ function openChildDialog(tab, row = null) {
     const data = {};
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "actividades") data.estado = normalizeActivityState(data.estado);
+    if (tab === 'programacion') {
+      if (!getMomentPreset(data.tipoMomento) && data.tipoMomento !== 'personalizado') { toast('Elige el tipo de momento.'); return; }
+      data.item = data.item || getMomentPreset(data.tipoMomento)?.label || '';
+      if (!data.item) { toast('Escribe el nombre del momento.'); return; }
+    }
     if (tab === "muestras") {
       annualSystem.normalizeParticipant(data, row || {});
       const cantidadInvitados = Math.max(0, Number.parseInt(formData.get("invitadosCantidad"), 10) || 0);
@@ -1929,13 +1961,13 @@ function childForm(tab, row = {}) {
   }
 
   if (tab === "programacion") {
+    const type = resolveMomentType(row);
     return `<h3>${row.id ? "Editar momento" : "Nuevo momento del evento"}</h3><div class="form-grid">
       <label>Hora<input type="time" name="hora" value="${escapeHtml(row.hora || "")}" /></label>
-      <label>Duración min.<input type="number" min="0" name="duracionMin" value="${escapeHtml(row.duracionMin || "")}" /></label>
-      <label>Bloque<input name="bloque" value="${escapeHtml(row.bloque || "")}" /></label>
-      <label>Espacio / salón<input name="espacio" value="${escapeHtml(row.espacio || "")}" /></label>
-      <label class="wide">Actividad o presentación<input required name="item" value="${escapeHtml(row.item || "")}" /></label>
-      <label>Encargado<input name="encargado" list="personasDisponibles" value="${escapeHtml(row.encargado || "")}" /></label>
+      <label>Duración min.<input type="number" min="0" step="0.5" name="duracionMin" value="${escapeHtml(row.duracionMin ?? "")}" /></label>
+      <label class="wide">Tipo de momento<select name="tipoMomento" required><option value="" ${type ? '' : 'selected'}>Elige un momento</option>${MOMENT_PRESETS.map(preset => `<option value="${preset.id}" ${preset.id === type ? 'selected' : ''}>${escapeHtml(preset.label)}</option>`).join('')}<option value="personalizado" ${type === 'personalizado' ? 'selected' : ''}>Otro momento</option></select><span class="field-hint" id="momentTypeHelp">${escapeHtml(getMomentPreset(type)?.help || 'Elige una opción o crea otro momento.')}</span></label>
+      <label class="wide">Nombre o detalle del momento<input required name="item" value="${escapeHtml(row.item || "")}" placeholder="Puedes personalizar el nombre elegido" /></label>
+      <label class="wide">Encargado<select name="encargado">${activityResponsibleOptions(row.encargado || '')}</select></label>
       <label class="wide">Montaje, transición y recursos<textarea name="montaje">${escapeHtml(row.montaje || "")}</textarea></label>
     </div>`;
   }

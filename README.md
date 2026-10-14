@@ -221,6 +221,8 @@ En Actividades, Responsable es un selector. Sus cinco estados son Pendiente, En 
 
 En Participantes, Docente es un selector con nombres reutilizados. **Ver historial de docentes** muestra las asignaciones de ese estudiante o ensamble en otras inscripciones; **Usar** elige un docente y **Guardar cambios** confirma la asignación.
 
+Minuto a minuto ofrece momentos predeterminados, nombres personalizables y un selector de encargados. Se muestra ordenado por hora y no pide Bloque ni Espacio.
+
 Los docentes guardan borradores o envían sus presentaciones e instrucciones con un enlace privado. La confirmación incorpora o vincula los estudiantes al evento, conserva las invitaciones existentes y permite pedir ajustes o recuperar el enlace. Las coincidencias requieren revisión expresa; los datos existentes se actualizan sólo si coordinación marca esa opción (los campos vacíos se completan).
 
 Modelo, permisos y despliegue: [docs/formato-docentes.md](./docs/formato-docentes.md).
