@@ -1494,7 +1494,7 @@ function momentTitle(row) {
   const preset = getMomentPreset(resolveMomentType(row));
   const category = preset && normalizarNombre(preset.label) !== normalizarNombre(row.item)
     ? `<div class="field-hint">${escapeHtml(preset.label)}</div>` : '';
-  const presentation = resolveMomentType(row) === 'presentacion' && row.participanteId
+  const presentation = resolveMomentType(row) === 'presentacion' && (row.participanteId || row.estudianteGrupo || getParticipantWorks(row).length)
     ? `<div class="field-hint"><strong>Estudiante / grupo: ${escapeHtml(row.estudianteGrupo || 'Participante')}</strong></div>${getParticipantWorks(row).map(work => `<div>${escapeHtml(work)}</div>`).join('')}` : '';
   return escapeHtml(row.item || '') + category + presentation;
 }
@@ -1634,6 +1634,7 @@ function openChildDialog(tab, row = null) {
   const content = childForm(tab, row || {});
   setModal(content, isEdit ? "Guardar cambios" : "Agregar");
   let momentPresentation = null;
+  let momentSelectionChanged = false;
 
   if (tab === "actividades") {
     const activityState = modalForm.querySelector('[name="estado"]');
@@ -1651,6 +1652,7 @@ function openChildDialog(tab, row = null) {
     const participant = modalForm.querySelector('[name="participanteId"]');
     const worksBox = modalForm.querySelector('#momentWorks');
     const presentationHint = modalForm.querySelector('#momentPresentationHint');
+    const detachedSnapshot = isEdit && !row.participanteId && Boolean(row.estudianteGrupo || getParticipantWorks(row).length);
     const autoValues = new Map();
     let previousType = type.value;
     type.addEventListener('change', () => {
@@ -1678,7 +1680,7 @@ function openChildDialog(tab, row = null) {
     const selectedWorks = () => [...worksBox.querySelectorAll('[name="obraPresentacion"]:checked')].map(input => input.value);
     const updatePresentationHint = () => {
       if (!momentPresentation) {
-        presentationHint.textContent = (state.childData.muestras || []).length ? 'Elige un participante para cargar sus obras registradas.' : 'Primero registra los estudiantes o grupos en Participantes.';
+        presentationHint.textContent = detachedSnapshot && !momentSelectionChanged ? 'Se conservan el estudiante y las obras guardados. Puedes elegir una inscripción actual para vincularlos.' : (state.childData.muestras || []).length ? 'Elige un participante para cargar sus obras registradas.' : 'Primero registra los estudiantes o grupos en Participantes.';
         return;
       }
       const total = getParticipantWorks(momentPresentation).length;
@@ -1718,11 +1720,11 @@ function openChildDialog(tab, row = null) {
         docente: source?.docente || '', duracionMin: source?.duracionMin ?? ''
       } : null;
       const chosen = new Set((keepSaved ? storedWorks : works).map(normalizarNombre));
-      worksBox.innerHTML = works.length ? `<p class="field-hint">Obras / actividades que presentará</p><div class="check-grid">${works.map(work => `<label class="check-card"><input type="checkbox" name="obraPresentacion" value="${escapeHtml(work)}" ${chosen.has(normalizarNombre(work)) ? 'checked' : ''} /><span>${escapeHtml(work)}</span></label>`).join('')}</div>` : '';
+      worksBox.innerHTML = works.length ? `<p class="field-hint">Obras / actividades que presentará</p><div class="check-grid">${works.map(work => `<label class="check-card"><input type="checkbox" name="obraPresentacion" value="${escapeHtml(work)}" ${chosen.has(normalizarNombre(work)) ? 'checked' : ''} /><span>${escapeHtml(work)}</span></label>`).join('')}</div>` : detachedSnapshot && !momentSelectionChanged ? `<p class="field-hint">${escapeHtml(row.estudianteGrupo || 'Participante guardado')}</p>${getParticipantWorks(row).map(work => `<div>${escapeHtml(work)}</div>`).join('')}` : '';
       if (!initial && type.value === 'presentacion') applyPresentationDefaults();
       updatePresentationHint();
     };
-    participant.addEventListener('change', () => loadPresentation());
+    participant.addEventListener('change', () => { momentSelectionChanged = true; loadPresentation(); });
     participant.addEventListener('focus', () => {
       participant.innerHTML = momentParticipantOptions({ participanteId: participant.value, estudianteGrupo: momentPresentation?.estudianteGrupo || row?.estudianteGrupo || '' });
     });
@@ -1877,6 +1879,9 @@ function openChildDialog(tab, row = null) {
         data.participanteId = presentation.participanteId;
         data.estudianteGrupo = presentation.estudianteGrupo;
         data.repertorios = presentation.repertorios;
+      } else if (data.tipoMomento === 'presentacion' && isEdit && !row.participanteId && !momentSelectionChanged) {
+        data.estudianteGrupo = row.estudianteGrupo || '';
+        data.repertorios = getParticipantWorks(row);
       }
     }
     if (tab === "muestras") {
@@ -2392,6 +2397,7 @@ async function collectEventPayload(eventId) {
       const data = docSnap.data();
       delete data.createdAt;
       delete data.updatedAt;
+      if (child === "muestras") data._exportId = docSnap.id;
       return data;
     });
   }
@@ -2441,12 +2447,25 @@ async function importEventFromFile(file) {
   evento.updatedBy = state.user.email;
   const eventRef = await addDoc(collection(db, COLLECTION), evento);
   const batch = writeBatch(db);
+  const planned = [];
   Object.entries(subcolecciones).forEach(([child, items]) => {
     if (!CHILD_COLLECTIONS.includes(child) || !Array.isArray(items)) return;
     items.forEach(item => {
       const ref = doc(collection(db, COLLECTION, eventRef.id, child));
-      batch.set(ref, { ...item, createdAt: serverTimestamp(), createdByEmail: state.user.email, createdByName: state.user.displayName || state.user.email });
+      planned.push({ child, item, ref });
     });
+  });
+  const participantIds = new Map();
+  planned.filter(({ child }) => child === "muestras").forEach(({ item, ref }) => {
+    const oldId = typeof item?._exportId === "string" ? item._exportId : "";
+    if (oldId) participantIds.set(oldId, participantIds.has(oldId) ? "" : ref.id);
+  });
+  planned.forEach(({ child, item, ref }) => {
+    const data = { ...item };
+    delete data._exportId;
+    // Los IDs cambian al importar; sin una referencia única se conserva sólo la copia guardada.
+    if (child === "programacion" && "participanteId" in data) data.participanteId = participantIds.get(data.participanteId) || "";
+    batch.set(ref, { ...data, createdAt: serverTimestamp(), createdByEmail: state.user.email, createdByName: state.user.displayName || state.user.email });
   });
   await batch.commit();
   selectEvent(eventRef.id);
