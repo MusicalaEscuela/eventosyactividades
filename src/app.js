@@ -1,10 +1,10 @@
-import { createAnnualSystem } from "./muestras-anual.js";
+import { createAnnualSystem } from "./muestras-anual.js?v=20261014-ensambles-inscritos";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork } from "./ensambles-model.js?v=20261014-ensambles";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, buildPresentationCatalogue } from "./ensambles-model.js?v=20261014-ensambles-inscritos";
 import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation } from "./programacion-model.js?v=20261013-presentaciones-inscritas";
 import {
   auth,
@@ -101,6 +101,7 @@ const state = {
 // Snapshot listeners replace these source arrays. Cache derived lists until
 // their sources change, so focusing or typing never rebuilds the whole roster.
 let ensembleCandidateCache;
+let ensembleParticipationCache;
 let reusableContextCache;
 let teacherCandidatesCache;
 let ripIndexCache;
@@ -466,10 +467,9 @@ function listenParticipaciones() {
     state.participacionesCargadas = true;
     state.participacionesError = '';
     const indice = new Map();
-    snapshot.docs.forEach(docSnap => {
-      const data = docSnap.data() || {};
-      // El id del evento es el abuelo del documento: eventos/{id}/muestras/{id}
-      const eventoId = docSnap.ref.parent.parent?.id || "";
+    const effective = buildPresentationCatalogue(state.participantesRegistrados.map(row => ({ ...row, id: row.muestraId })));
+    effective.forEach(data => {
+      const eventoId = data.eventoId || "";
       const evento = state.eventos.find(e => e.id === eventoId);
 
       // Un ensamble cuenta como presentación para cada uno de sus integrantes.
@@ -485,7 +485,7 @@ function listenParticipaciones() {
         if (!indice.has(clave)) indice.set(clave, []);
         indice.get(clave).push({
           eventoId,
-          muestraId: docSnap.id,
+          muestraId: data.muestraId || data.id,
           docente: data.docente || '',
           nombreLibre: String(nombre || data.estudianteGrupo || "").trim(),
           eventoTitulo: evento?.titulo || "Evento",
@@ -493,8 +493,8 @@ function listenParticipaciones() {
           tipo: evento?.tipo || "",
           repertorio: data.repertorio || "",
           repertorios: obrasDe(data),
-          esEnsamble: Boolean(data.esEnsamble),
-          nombreEnsamble: data.esEnsamble ? (data.estudianteGrupo || "") : "",
+          esEnsamble: participantIsEnsemble(data),
+          nombreEnsamble: participantIsEnsemble(data) ? (data.estudianteGrupo || "") : "",
           estado: data.estado || ""
         });
       });
@@ -951,18 +951,19 @@ function openStudentPicker(modo = "individual") {
 function resumenRepertorio() {
   const filas = state.childData.muestras;
   if (!filas.length) return "";
-
+  const presentaciones = eventPresentations();
   const conteo = repertorioDelEvento();
   const repetidas = [...conteo.entries()].filter(([, usos]) => usos.length > 1);
-  const sinObra = filas.filter(row => !obrasDe(row).length).length;
-  const minutos = filas.reduce((total, row) => total + (Number(row.duracionMin) || 0), 0);
-  const ensambles = filas.filter(row => row.esEnsamble).length;
+  const sinObra = presentaciones.filter(row => !getParticipantWorks(row).length).length;
+  const minutos = presentaciones.reduce((total, row) => total + (Number(row.duracionMin) || 0), 0);
+  const ensambles = presentaciones.filter(participantIsEnsemble).length;
   const invitacionesEnviadas = filas.filter(row => ["Enviada", "Aceptada", "Rechazada"].includes(row.invitacionEstado)).length;
   const invitacionesAceptadas = filas.filter(row => row.invitacionEstado === "Aceptada").length;
   const totalInvitados = filas.reduce((total, row) => total + (row.tieneInvitados ? Number(row.invitadosCantidad) || 0 : 0), 0);
 
   const chips = [
-    `<span class="badge neutral">${filas.length} presentación${filas.length === 1 ? "" : "es"}</span>`,
+    `<span class="badge neutral">${filas.length} inscripción${filas.length === 1 ? "" : "es"}</span>`,
+    `<span class="badge neutral">${presentaciones.length} presentación${presentaciones.length === 1 ? "" : "es"} activa${presentaciones.length === 1 ? "" : "s"}</span>`,
     ensambles ? `<span class="badge info">${ensambles} ensamble${ensambles === 1 ? "" : "s"}</span>` : "",
     `<span class="badge neutral">${conteo.size} obra${conteo.size === 1 ? "" : "s"} distinta${conteo.size === 1 ? "" : "s"}</span>`,
     `<span class="badge info">${invitacionesEnviadas} invitación${invitacionesEnviadas === 1 ? "" : "es"} enviada${invitacionesEnviadas === 1 ? "" : "s"}</span>`,
@@ -981,7 +982,46 @@ function resumenRepertorio() {
         .join(" · ")}</p>`
     : "";
 
-  return `<div class="resumen-repertorio">${chips}${detalle}</div>`;
+  const mixed = filas.some(row => !participantIsEnsemble(row) && participantEnsembles(row).some(group => !isCancelledParticipant(group)) && participantSoloWorks(row).length);
+  return `<div class="resumen-repertorio">${chips}${detalle}${mixed ? '<p class="field-hint">Si un estudiante también presenta obras solistas, los minutos de su ficha deben corresponder sólo a esas obras. El tiempo del ensamble se registra en la presentación compartida.</p>' : ''}</div>`;
+}
+
+function ensembleIndex() {
+  const sources = [state.childData.muestras, state.selectedEventId];
+  if (!sameReferences(ensembleParticipationCache?.sources, sources)) {
+    // The document path identifies this event, including imported legacy records.
+    ensembleParticipationCache = { sources, index: buildEnsembleParticipationIndex(state.childData.muestras.map(eventParticipant)) };
+  }
+  return ensembleParticipationCache.index;
+}
+
+function eventParticipant(row = {}) { return { ...row, eventoId: state.selectedEventId, eventId: state.selectedEventId }; }
+function participantEnsembles(row) { return getParticipantEnsembles(eventParticipant(row), ensembleIndex()); }
+function participantWorks(row) { return getEffectiveParticipantWorks(eventParticipant(row), ensembleIndex()); }
+function participantSoloWorks(row) { return getIndividualSoloWorks(eventParticipant(row), ensembleIndex()); }
+function participantWorkEnsembles(row, work) { return getEnsemblesForParticipantWork(eventParticipant(row), work, ensembleIndex()); }
+function isCancelledParticipant(row) { return normalizarNombre(row?.estado) === 'cancelado'; }
+function eventPresentations() { return buildPresentationCatalogue(ensembleIndex()).filter(row => !isCancelledParticipant(row)); }
+
+function ensembleMembersText(group) {
+  return normalizeEnsembleMembers(group.integrantes).map(member => `${member.nombre}${member.instrumento ? ` (${member.instrumento})` : ''}`).join(' · ');
+}
+
+function participantEnsembleContext(row) {
+  if (participantIsEnsemble(row)) return '';
+  const groups = participantEnsembles(row);
+  const active = groups.some(group => !isCancelledParticipant(group));
+  const help = active ? participantSoloWorks(row).length ? 'También conserva obras solistas. Registra en su ficha sólo los minutos de esas obras; el tiempo compartido se registra en el ensamble.' : 'Esta inscripción conserva su invitación e invitados. Su presentación y duración se cuentan en el ensamble.' : '';
+  return groups.map(group => `<article class="ensemble-assignment"><strong>${escapeHtml(group.estudianteGrupo || 'Ensamble')}${isCancelledParticipant(group) ? ' · cancelado' : ''}</strong><div>${getParticipantWorks(group).map(escapeHtml).join('<br>')}</div><p class="field-hint">${escapeHtml(ensembleMembersText(group))}</p></article>`).join('') + (help ? `<p class="field-hint">${help}</p>` : '');
+}
+
+function participantWorkCell(row, work, counts) {
+  const groups = participantIsEnsemble(row) ? [row] : participantWorkEnsembles(row, work);
+  const repeated = counts.get(ripNorm(work))?.length > 1 ? '<span class="badge danger">Repetida</span>' : '';
+  const shared = groups.map(group => `<div><span class="badge info">Ensamble</span><div class="field-hint">${escapeHtml(group.estudianteGrupo || 'Presentación compartida')}<br>${escapeHtml(ensembleMembersText(group))}</div><button type="button" class="small-btn" data-edit-ensemble="${escapeHtml(group.id)}">${participantIsEnsemble(row) ? 'Editar integrantes' : 'Ver ensamble'}</button></div>`).join('');
+  const ownIndex = obrasDe(row).findIndex(title => normalizarNombre(title) === normalizarNombre(work));
+  const action = groups.length || ownIndex < 0 ? '' : `<button type="button" class="small-btn" data-assemble-source="${escapeHtml(row.id)}" data-assemble-index="${ownIndex}">Armar ensamble</button>`;
+  return `<div class="ensemble-work">${escapeHtml(work)}${repeated}${shared}${action}</div>`;
 }
 
 /* ============ Control de repertorio (que no se repitan obras) ============ */
@@ -1005,8 +1045,8 @@ function campoObra(valor = "") {
 /** Cuenta cuántas veces se usa cada obra en el evento abierto. */
 function repertorioDelEvento() {
   const conteo = new Map();
-  state.childData.muestras.forEach(row => {
-    new Set(obrasDe(row).map(o => ripNorm(o))).forEach(clave => {
+  eventPresentations().forEach(row => {
+    new Set(getParticipantWorks(row).map(o => ripNorm(o))).forEach(clave => {
       if (!clave) return;
       if (!conteo.has(clave)) conteo.set(clave, []);
       conteo.get(clave).push(row);
@@ -1019,20 +1059,23 @@ function repertorioDelEvento() {
  * Avisos de repertorio: si la obra ya la toca alguien más en este evento,
  * o si el propio estudiante ya la presentó en un evento anterior.
  */
-function avisoRepertorio(obra, { excluirId = "", estudiante = "", studentId = "" } = {}) {
+function avisoRepertorio(obra, { excluirId = "", estudiante = "", studentId = "", esEnsamble = false, presentationPreview = null, draftId = '' } = {}) {
   const clave = ripNorm(obra);
   if (!clave) return "";
 
-  const enEvento = (repertorioDelEvento().get(clave) || []).filter(row => row.id !== excluirId);
+  const shared = !esEnsamble ? participantWorkEnsembles({ id: excluirId, studentId }, obra) : [];
+  const count = presentationPreview ? presentationPreview.filter(row => !isCancelledParticipant(row) && row.id !== draftId && getParticipantWorks(row).some(title => ripNorm(title) === clave)) : repertorioDelEvento().get(clave) || [];
+  const enEvento = count.filter(row => row.id !== excluirId && !shared.some(group => group.id === row.id));
   if (enEvento.length) {
     const quienes = enEvento.map(r => r.estudianteGrupo || "otro participante").join(", ");
     return `⚠️ Repetida en este evento: ya la presenta ${quienes}.`;
   }
+  if (shared.length) return `Ensamble: ${shared.map(group => group.estudianteGrupo || 'Presentación compartida').join(', ')}. Se cuenta una sola presentación.`;
 
   const propias = state.participaciones.get(String(studentId).trim())
     || state.participaciones.get(ripNorm(estudiante))
     || [];
-  const anterior = propias.find(p => (p.repertorios?.length ? p.repertorios : [p.repertorio || ""]).some(o => ripNorm(o) === clave));
+  const anterior = propias.find(p => p.eventoId !== state.selectedEventId && (p.repertorios?.length ? p.repertorios : [p.repertorio || ""]).some(o => ripNorm(o) === clave));
   if (anterior) return `ℹ️ Este estudiante ya la presentó en "${anterior.eventoTitulo}".`;
 
   return "✅ Obra libre en este evento.";
@@ -1095,7 +1138,7 @@ function listenChildren(eventId) {
   CHILD_COLLECTIONS.forEach(child => {
     const unsub = onSnapshot(collection(db, COLLECTION, eventId, child), snapshot => {
       state.childData[child] = snapshot.docs
-        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+        .map(docSnap => ({ ...docSnap.data(), id: docSnap.id }))
         .sort((a, b) => {
           if (child === 'programacion') return Number(!a.hora) - Number(!b.hora)
             || momentDay(a) - momentDay(b)
@@ -1256,7 +1299,7 @@ function renderDetail() {
       </div>
     </section>
 
-    ${evento.tipo === "Muestra de proceso" ? annualSystem.panel(state.childData.muestras) : ""}
+    ${evento.tipo === "Muestra de proceso" ? annualSystem.panel(eventPresentations()) : ""}
     <section class="panel teacher-admin-panel" id="teacherAdminPanel"></section>
     <section class="panel">
       <div class="row-between">
@@ -1291,6 +1334,10 @@ function renderDetail() {
   }));
   $$("[data-action]").forEach(btn => btn.addEventListener("click", () => handleAction(btn.dataset.action)));
   eventDetail.querySelectorAll('[data-assemble-source]').forEach(button => button.addEventListener('click', () => openEnsembleForWork(button.dataset.assembleSource, Number(button.dataset.assembleIndex))));
+  eventDetail.querySelectorAll('[data-edit-ensemble]').forEach(button => button.addEventListener('click', () => {
+    const group = state.childData.muestras.find(row => row.id === button.dataset.editEnsemble);
+    if (group) openChildDialog('muestras', group);
+  }));
   attachBoardDragAndDrop();
   teacherAdmin.mount($("#teacherAdminPanel"), evento);
 }
@@ -1445,14 +1492,14 @@ function renderTabContent(tab) {
       participantIsEnsemble(row)
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <span class="badge info">Ensamble</span><div class="field-hint">${normalizeEnsembleMembers(row.integrantes).map(member => `${escapeHtml(member.nombre)} · ${escapeHtml(member.instrumento || 'Instrumento por definir')}`).join('<br>')}</div>`
-        : escapeHtml(row.estudianteGrupo || "Sin nombre"),
+        : `${escapeHtml(row.estudianteGrupo || "Sin nombre")}${participantEnsembles(row).length ? '<div><span class="badge info">Participa en ensamble</span></div>' : ''}`,
       escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
-      obrasDe(row).map((obra, index) => `<div class="ensemble-work">${escapeHtml(obra)}${conteoObras.get(ripNorm(obra))?.length > 1 ? ' <span class="badge danger">Repetida</span>' : ''}<button type="button" class="small-btn" data-assemble-source="${escapeHtml(row.id)}" data-assemble-index="${index}">${participantIsEnsemble(row) ? 'Editar integrantes' : 'Armar ensamble'}</button></div>`).join(''),
+      participantWorks(row).map(obra => participantWorkCell(row, obra, conteoObras)).join(''),
       row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
-      row.duracionMin ? `${escapeHtml(row.duracionMin)} min` : "",
+      !participantIsEnsemble(row) && participantEnsembles(row).some(group => !isCancelledParticipant(group)) && !participantSoloWorks(row).length ? '<span class="field-hint">Tiempo incluido en el ensamble</span>' : row.duracionMin ? `${escapeHtml(row.duracionMin)} min` : "",
       badge(row.estado),
       `<span class="badge ${row.invitacionEstado === "Aceptada" ? "success" : row.invitacionEstado === "Enviada" ? "info" : row.invitacionEstado === "Rechazada" ? "danger" : "neutral"}">${escapeHtml(row.invitacionEstado || "Pendiente")}</span>${row.invitacionFechaEnvio ? `<div class="muted" style="font-size:.78rem">${normalizeDate(row.invitacionFechaEnvio)}</div>` : ""}`,
       row.tieneInvitados ? `${escapeHtml(row.invitadosCantidad || 0)} invitado${Number(row.invitadosCantidad) === 1 ? "" : "s"}` : "Sin invitados",
@@ -1535,15 +1582,20 @@ function momentTitle(row) {
 }
 
 function momentParticipantOptions(row = {}) {
-  const participants = [...(state.childData.muestras || [])].sort((a, b) => String(a.estudianteGrupo || '').localeCompare(String(b.estudianteGrupo || ''), 'es'));
+  const participants = [...eventPresentations()].sort((a, b) => String(a.estudianteGrupo || '').localeCompare(String(b.estudianteGrupo || ''), 'es'));
+  const names = new Map();
+  for (const participant of participants) {
+    const key = normalizarNombre(participant.estudianteGrupo || participant.nombrePresentacion);
+    names.set(key, (names.get(key) || 0) + 1);
+  }
   const selectedId = row.participanteId || '';
   const options = participants.map((participant, index) => {
     const name = participant.estudianteGrupo || participant.nombrePresentacion || 'Participante';
-    const repeated = participants.filter(other => normalizarNombre(other.estudianteGrupo || other.nombrePresentacion) === normalizarNombre(name)).length > 1;
-    const detail = repeated ? ` · inscripción ${index + 1}${getParticipantWorks(participant)[0] ? ` · ${getParticipantWorks(participant)[0].slice(0, 60)}` : ''}` : participant.esEnsamble ? ' · ensamble' : '';
+    const repeated = names.get(normalizarNombre(name)) > 1;
+    const detail = repeated ? ` · inscripción ${index + 1}${getParticipantWorks(participant)[0] ? ` · ${getParticipantWorks(participant)[0].slice(0, 60)}` : ''}` : participantIsEnsemble(participant) ? ' · ensamble' : '';
     return `<option value="${escapeHtml(participant.id)}" ${participant.id === selectedId ? 'selected' : ''}>${escapeHtml(name + detail)}</option>`;
   });
-  if (selectedId && !participants.some(participant => participant.id === selectedId)) options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(row.estudianteGrupo || 'Participante guardado')} · inscripción retirada</option>`);
+  if (selectedId && !participants.some(participant => participant.id === selectedId)) options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(row.estudianteGrupo || 'Participante guardado')} · presentación guardada</option>`);
   return `<option value="" ${selectedId ? '' : 'selected'}>Elige un estudiante o grupo</option>` + options.join('');
 }
 
@@ -1664,9 +1716,9 @@ function openEventDialog(evento = null) {
 }
 
 function ensembleCandidates() {
-  const sources = [state.childData.muestras, state.ripEstudiantes];
+  const sources = [state.childData.muestras];
   if (sameReferences(ensembleCandidateCache?.sources, sources)) return ensembleCandidateCache.rows;
-  const candidates = buildEnsembleCandidates({ participants: sources[0], students: sources[1] }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const candidates = buildEnsembleCandidates({ participants: sources[0] }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const nameCounts = new Map();
   for (const candidate of candidates) {
     const name = normalizarNombre(candidate.nombre);
@@ -1682,7 +1734,7 @@ function ensembleCandidates() {
 }
 
 function ensembleCandidateOptions(candidates) {
-  return '<option value="">Elige un estudiante registrado</option>' + candidates.map(candidate => `<option value="${escapeHtml(candidate.key)}">${escapeHtml(candidate.label)}</option>`).join('');
+  return '<option value="">Elige un estudiante inscrito</option>' + candidates.map(candidate => `<option value="${escapeHtml(candidate.key)}">${escapeHtml(candidate.label)}</option>`).join('');
 }
 
 function ensembleMemberFromCandidate(candidate) {
@@ -1726,7 +1778,9 @@ function openChildDialog(tab, row = null) {
   let momentPresentation = null;
   let momentSelectionChanged = false;
   let ensembleMembers = normalizeEnsembleMembers(row?.integrantes || []);
+  const originalMemberKeys = new Set((isEdit && participantIsEnsemble(row) ? ensembleMembers : []).map(member => JSON.stringify([member.participanteId || '', member.studentId || '', normalizarNombre(member.nombre)])));
   let childSaving = false;
+  let refreshWorkHints = () => {};
 
   if (tab === 'muestras') {
     const type = modalForm.querySelector('[name="tipoParticipacion"]');
@@ -1738,21 +1792,25 @@ function openChildDialog(tab, row = null) {
     const title = modalForm.querySelector('#participantNameLabel');
     let candidates = null;
     let previousSearch = null;
+    let previousMembers = null;
     const refreshCandidates = () => {
       const updated = ensembleCandidates();
       const query = normalizarNombre(search.value);
-      if (candidates === updated && previousSearch === query) return;
+      const memberKeys = ensembleMembers.map(member => JSON.stringify([member.participanteId, member.studentId])).join('|');
+      if (candidates === updated && previousSearch === query && previousMembers === memberKeys) return;
       candidates = updated;
       previousSearch = query;
+      previousMembers = memberKeys;
+      const available = candidates.filter(candidate => !ensembleMembers.some(member => member.participanteId && member.participanteId === candidate.participanteId || member.studentId && member.studentId === candidate.studentId));
       const terms = query.split(' ').filter(Boolean);
-      const matches = terms.length ? candidates.filter(candidate => terms.every(term => candidate.searchText.includes(term))) : candidates;
+      const matches = terms.length ? available.filter(candidate => terms.every(term => candidate.searchText.includes(term))) : available;
       // Keep the native chooser small; search still covers every recorded student.
       const visible = matches.slice(0, 60);
-      const selected = candidates.find(candidate => candidate.key === choice.value);
+      const selected = available.find(candidate => candidate.key === choice.value);
       if (selected && !visible.includes(selected)) visible.push(selected);
       choice.innerHTML = ensembleCandidateOptions(visible);
       choice.value = selected?.key || '';
-      results.textContent = !matches.length ? 'No hay coincidencias. Prueba con otro nombre o instrumento.' : matches.length > 60 ? `${matches.length} estudiantes encontrados. Mostrando los primeros 60; escribe para encontrar a quien necesitas.` : `${matches.length} estudiante${matches.length === 1 ? '' : 's'} encontrado${matches.length === 1 ? '' : 's'}.`;
+      results.textContent = !candidates.length ? 'Primero agrega los estudiantes en Participantes. Aquí aparecerán sus inscripciones de esta muestra.' : !available.length ? 'Todos los estudiantes inscritos ya están en este ensamble.' : !matches.length ? 'No hay coincidencias entre los inscritos disponibles.' : matches.length > 60 ? `${matches.length} inscritos disponibles. Mostrando los primeros 60; escribe para buscar.` : `${matches.length} inscrito${matches.length === 1 ? '' : 's'} disponible${matches.length === 1 ? '' : 's'} en esta muestra.`;
     };
     const readMembers = () => {
       list.querySelectorAll('[data-member-instrument]').forEach(input => { ensembleMembers[Number(input.dataset.memberInstrument)].instrumento = input.value.trim(); });
@@ -1775,6 +1833,7 @@ function openChildDialog(tab, row = null) {
       const preservedId = !participantIsEnsemble(row) && normalizarNombre(name.value) === normalizarNombre(row?.estudianteGrupo) ? row?.studentId || '' : '';
       studentId.value = group ? '' : preservedId || buscarEnPadron(name.value)?.studentId || '';
       refreshParticipantTeacherContext();
+      refreshWorkHints();
     };
     search.addEventListener('input', refreshCandidates);
     choice.addEventListener('focus', refreshCandidates);
@@ -1787,12 +1846,12 @@ function openChildDialog(tab, row = null) {
       if (next.length === ensembleMembers.length) { toast('Este estudiante ya está en el ensamble.'); return; }
       const errors = validateEnsembleMembers(next).filter(message => !message.includes('al menos dos'));
       if (errors.length) { toast(errors.join(' ')); return; }
-      ensembleMembers = next; renderMembers(); choice.value = '';
+      ensembleMembers = next; renderMembers(); choice.value = ''; refreshCandidates(); refreshWorkHints();
     });
     list.addEventListener('click', event => {
       const button = event.target.closest('[data-remove-member]');
       if (!button) return;
-      readMembers(); ensembleMembers.splice(Number(button.dataset.removeMember), 1); renderMembers();
+      readMembers(); ensembleMembers.splice(Number(button.dataset.removeMember), 1); renderMembers(); refreshCandidates(); refreshWorkHints();
     });
     list.addEventListener('input', readMembers);
     type.addEventListener('change', updateType);
@@ -1848,10 +1907,10 @@ function openChildDialog(tab, row = null) {
       }
       const total = getParticipantWorks(momentPresentation).length;
       const count = selectedWorks().length;
-      const unavailable = !(state.childData.muestras || []).some(source => source.id === participant.value);
+      const unavailable = !eventPresentations().some(source => source.id === participant.value);
       const countText = total ? `${count} de ${total} obra${total === 1 ? '' : 's'} seleccionada${count === 1 ? '' : 's'}.` : 'Este participante aún no tiene obras registradas; puedes completarlas en Participantes.';
       const durationText = total && count < total ? ' La duración registrada corresponde a la presentación completa. Ajusta los minutos si presentarás sólo parte del repertorio.' : ' Puedes ajustar la duración y el encargado.';
-      presentationHint.textContent = countText + durationText + (unavailable ? ' La inscripción fue retirada; se conserva la presentación guardada.' : '');
+      presentationHint.textContent = countText + durationText + (unavailable ? ' Se conserva este momento guardado. Si ahora corresponde a un ensamble, elige su presentación compartida para actualizarlo.' : '');
     };
     const fillFromParticipant = (input, value, generic = '') => {
       if (!input.value.trim() || autoValues.get(input) === input.value || generic && input.value === generic) {
@@ -1871,7 +1930,7 @@ function openChildDialog(tab, row = null) {
     }
     const loadPresentation = (initial = false) => {
       const id = participant.value;
-      const source = (state.childData.muestras || []).find(candidate => candidate.id === id);
+      const source = eventPresentations().find(candidate => candidate.id === id);
       const savedLink = Boolean(isEdit && id && row.participanteId === id);
       const keepSaved = savedLink && (initial || !source);
       const storedWorks = keepSaved ? getParticipantWorks(row) : [];
@@ -1880,7 +1939,7 @@ function openChildDialog(tab, row = null) {
         ...(source || {}), id,
         estudianteGrupo: keepSaved ? row.estudianteGrupo || source?.estudianteGrupo || 'Participante' : source.estudianteGrupo || source.nombrePresentacion || 'Participante',
         repertorios: works, repertorio: '',
-        docente: source?.docente || '', duracionMin: source?.duracionMin ?? ''
+        docente: source?.docente || (keepSaved ? row.encargado || '' : ''), duracionMin: source?.duracionMin ?? (keepSaved ? row.duracionMin ?? '' : '')
       } : null;
       const chosen = new Set((keepSaved ? storedWorks : works).map(normalizarNombre));
       worksBox.innerHTML = works.length ? `<p class="field-hint">Obras / actividades que presentará</p><div class="check-grid">${works.map(work => `<label class="check-card"><input type="checkbox" name="obraPresentacion" value="${escapeHtml(work)}" ${chosen.has(normalizarNombre(work)) ? 'checked' : ''} /><span>${escapeHtml(work)}</span></label>`).join('')}</div>` : detachedSnapshot && !momentSelectionChanged ? `<p class="field-hint">${escapeHtml(row.estudianteGrupo || 'Participante guardado')}</p>${getParticipantWorks(row).map(work => `<div>${escapeHtml(work)}</div>`).join('')}` : '';
@@ -1919,10 +1978,17 @@ function openChildDialog(tab, row = null) {
         caja.className = "field-hint";
         return;
       }
+      const group = modalForm.querySelector('[name="tipoParticipacion"]')?.value === 'Ensamble';
+      const createsGroup = group && isEdit && !participantIsEnsemble(row);
+      const draftId = group && !createsGroup && row?.id || '';
+      const previewRows = group ? [...state.childData.muestras.filter(source => source.id !== draftId).map(eventParticipant), eventParticipant({ id: draftId, esEnsamble: true, repertorios: obras, integrantes: ensembleMembers, estado: modalForm.querySelector('[name="estado"]')?.value || '' })] : null;
       const opciones = {
         excluirId: row?.id || "",
         estudiante: modalForm.querySelector('[name="estudianteGrupo"]')?.value || "",
-        studentId: modalForm.querySelector('[name="studentId"]')?.value || ""
+        studentId: modalForm.querySelector('[name="studentId"]')?.value || "",
+        esEnsamble: group,
+        draftId,
+        presentationPreview: previewRows ? buildPresentationCatalogue(previewRows) : null
       };
       const vistos = new Set();
       const textos = obras.map(obra => {
@@ -1935,6 +2001,7 @@ function openChildDialog(tab, row = null) {
       const alerta = textos.some(t => t.includes("⚠️"));
       caja.className = "field-hint " + (alerta ? "hint-alerta" : textos.every(t => t.includes("✅")) ? "hint-ok" : "");
     };
+    refreshWorkHints = avisarObras;
     obrasLista.addEventListener("input", avisarObras);
     obrasLista.addEventListener("change", (e) => {
       // Al escoger una obra del banco de repertorio, se propone su género.
@@ -1985,13 +2052,17 @@ function openChildDialog(tab, row = null) {
       actualizarEstado();
       clearTimeout(historyTimer);
       historyTimer = setTimeout(() => {
-        if (estudianteInput.isConnected) refreshParticipantTeacherContext();
+        if (estudianteInput.isConnected) {
+          refreshParticipantTeacherContext();
+          if (modalForm.querySelector('[name="tipoParticipacion"]')?.value !== 'Ensamble') refreshWorkHints();
+        }
       }, 250);
     });
     estudianteInput.addEventListener("change", () => {
       actualizarEstado();
       clearTimeout(historyTimer);
       refreshParticipantTeacherContext();
+      if (modalForm.querySelector('[name="tipoParticipacion"]')?.value !== 'Ensamble') refreshWorkHints();
     });
   }
 
@@ -2046,7 +2117,7 @@ function openChildDialog(tab, row = null) {
       const participantId = String(formData.get('participanteId') || '');
       if (data.tipoMomento === 'presentacion' && participantId) {
         const previousLink = isEdit && row.participanteId === participantId;
-        if (!momentPresentation || momentPresentation.id !== participantId || !previousLink && !(state.childData.muestras || []).some(participant => participant.id === participantId)) { toast('Esta inscripción ya no está disponible. Elige otro participante.'); return; }
+        if (!momentPresentation || momentPresentation.id !== participantId || !previousLink && !eventPresentations().some(participant => participant.id === participantId)) { toast('Esta presentación cambió. Elige el estudiante o ensamble que corresponde ahora.'); return; }
         const works = formData.getAll('obraPresentacion');
         if (getParticipantWorks(momentPresentation).length && !works.length && !(previousLink && !getParticipantWorks(row).length)) { toast('Elige al menos una obra que presentará.'); return; }
         const presentation = buildMomentPresentation(momentPresentation, works);
@@ -2067,6 +2138,9 @@ function openChildDialog(tab, row = null) {
       if (data.esEnsamble) {
         const errors = validateEnsembleMembers(data.integrantes);
         if (errors.length) { toast(errors.join(' ')); return; }
+        const candidates = ensembleCandidates();
+        const missing = data.integrantes.filter(member => !originalMemberKeys.has(JSON.stringify([member.participanteId || '', member.studentId || '', normalizarNombre(member.nombre)])) && !candidates.some(candidate => candidate.participanteId === member.participanteId && (!member.studentId || !candidate.studentId || member.studentId === candidate.studentId)));
+        if (missing.length) { toast('La inscripción de un integrante cambió. Vuelve a elegirlo entre los participantes de esta muestra.'); return; }
         data.studentId = '';
       }
       annualSystem.normalizeParticipant(data, row || {});
@@ -2100,7 +2174,8 @@ function openChildDialog(tab, row = null) {
     if (submitButton) submitButton.disabled = true;
     try {
       const path = collection(db, COLLECTION, state.selectedEventId, tab);
-      if (isEdit) {
+      const createsGroup = tab === 'muestras' && isEdit && !participantIsEnsemble(row) && data.esEnsamble;
+      if (isEdit && !createsGroup) {
         await updateDoc(doc(db, COLLECTION, state.selectedEventId, tab, row.id), data);
         toast("Registro actualizado.");
       } else {
@@ -2108,7 +2183,7 @@ function openChildDialog(tab, row = null) {
         data.createdByEmail = state.user.email;
         data.createdByName = state.user.displayName || state.user.email;
         await addDoc(path, data);
-        toast("Registro agregado.");
+        toast(createsGroup ? 'Ensamble agregado. Se conserva la inscripción individual.' : "Registro agregado.");
       }
       modal.close();
     } catch (error) {
@@ -2183,6 +2258,13 @@ function refreshParticipantTeacherContext() {
   const name = modalForm.querySelector('[name="estudianteGrupo"]')?.value.trim() || '';
   const sources = [name, modalForm.querySelector('[name="studentId"]')?.value || '', holder.dataset.ensemble, holder.dataset.participantId, holder.dataset.eventId, teacher.value, state.ripEstado, state.ripEstudiantes, state.participantesRegistrados, state.participaciones, state.participacionesCargadas, state.participacionesError, state.selectedEventId, ...reusableContextSources()];
   if (sameReferences(holder._contextSources, sources)) return;
+  const ensembleContext = modalForm.querySelector('#participantEnsembleContext');
+  if (ensembleContext) {
+    const group = holder.dataset.ensemble === 'true';
+    ensembleContext.classList.toggle('hidden', group);
+    const contextMarkup = group ? '' : participantEnsembleContext({ id: holder.dataset.participantId, studentId: sources[1] });
+    if (ensembleContext._markup !== contextMarkup) { ensembleContext.innerHTML = contextMarkup; ensembleContext._markup = contextMarkup; }
+  }
   const hint = modalForm.querySelector('#estadoEstudiante');
   if (hint) hint.textContent = estadoEstudianteHint({ estudianteGrupo: name, studentId: modalForm.querySelector('[name="studentId"]')?.value || '', esEnsamble: holder.dataset.ensemble === 'true', id: holder.dataset.participantId, eventoId: holder.dataset.eventId });
   const history = participantTeacherHistoryFromForm();
@@ -2238,13 +2320,14 @@ function childForm(tab, row = {}) {
     return `
       <h3>${row.id ? "Editar muestra" : "Nueva muestra"}</h3>
       <div class="form-grid">
-        <label class="wide">Tipo de participación<select name="tipoParticipacion"><option value="Individual" ${participantIsEnsemble(row) ? '' : 'selected'}>Individual</option><option value="Ensamble" ${participantIsEnsemble(row) ? 'selected' : ''}>Ensamble · varios estudiantes</option></select></label>
+        ${row.id ? `<label class="wide">Inscripción<input readonly value="${participantIsEnsemble(row) ? 'Ensamble · varios estudiantes' : 'Individual · puede participar en ensambles'}" /><input type="hidden" name="tipoParticipacion" value="${participantIsEnsemble(row) ? 'Ensamble' : 'Individual'}" />${participantIsEnsemble(row) ? '' : '<span class="field-hint">Para tocar en grupo, usa “Armar ensamble” junto a su obra en la lista de participantes. Su ficha individual se conserva.</span>'}</label>` : `<label class="wide">Tipo de participación<select name="tipoParticipacion"><option value="Individual" ${participantIsEnsemble(row) ? '' : 'selected'}>Individual</option><option value="Ensamble" ${participantIsEnsemble(row) ? 'selected' : ''}>Ensamble · varios estudiantes</option></select></label>`}
         <label class="wide"><span id="participantNameLabel">${participantIsEnsemble(row) ? 'Nombre del ensamble' : 'Estudiante o grupo'}</span>
           <input name="estudianteGrupo" list="estudiantesDisponibles" required value="${escapeHtml(row.estudianteGrupo || "")}" placeholder="Busca en el padrón o escribe un grupo" />
           <input type="hidden" name="studentId" value="${escapeHtml(row.studentId || "")}" />
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
-        <fieldset class="wide form-section ${participantIsEnsemble(row) ? '' : 'hidden'}" id="ensembleMembers"><legend>Integrantes de esta presentación</legend><label>Buscar estudiante<input type="search" id="ensembleStudentSearch" placeholder="Nombre, instrumento o docente" autocomplete="off" /></label><p class="field-hint" id="ensembleSearchResults" role="status"></p><div class="ensemble-picker"><label>Estudiante registrado<select id="ensembleStudentChoice"><option value="">Elige un estudiante registrado</option></select></label><button type="button" class="small-btn" id="addEnsembleStudent">Agregar integrante</button></div><div id="ensembleMembersList"></div><p class="field-hint">El ensamble cuenta como una presentación. Cada integrante conserva su identidad y su instrumento. Las inscripciones individuales siguen siendo presentaciones independientes; revisa sus obras si ya no se tocarán como solista.</p></fieldset>
+        <fieldset class="wide form-section ${participantIsEnsemble(row) ? '' : 'hidden'}" id="ensembleMembers"><legend>Integrantes de esta presentación</legend><label>Buscar entre los inscritos en esta muestra<input type="search" id="ensembleStudentSearch" placeholder="Nombre, instrumento o docente" autocomplete="off" /></label><p class="field-hint" id="ensembleSearchResults" role="status"></p><div class="ensemble-picker"><label>Estudiante inscrito<select id="ensembleStudentChoice"><option value="">Elige un estudiante inscrito</option></select></label><button type="button" class="small-btn" id="addEnsembleStudent">Agregar integrante</button></div><div id="ensembleMembersList"></div><p class="field-hint">Cada estudiante conserva su inscripción, invitación e invitados. Las obras compartidas se vinculan automáticamente al ensamble y se cuentan una sola vez. Para sumar alguien nuevo, inscríbelo primero en Participantes.</p></fieldset>
+        <div class="wide ${participantIsEnsemble(row) ? 'hidden' : ''}" id="participantEnsembleContext">${participantEnsembleContext(row)}</div>
         ${annualSystem.areaField(row)}
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>

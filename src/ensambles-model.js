@@ -5,6 +5,7 @@ const rows = value => Array.isArray(value) ? value : [];
 const text = value => typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 const instrument = value => Array.isArray(value) ? value.map(text).filter(Boolean).join(', ') : text(value);
 const ensemble = row => Boolean(row?.esEnsamble || row?.tipo === 'Ensamble' || rows(row?.integrantes).length);
+const cancelled = row => normalizarNombre(row?.estado) === 'cancelado';
 const identity = member => member.studentId ? `s:${member.studentId}` : member.participanteId ? `e:${member.participanteId}` : member.nombre ? `n:${normalizarNombre(member.nombre)}` : '';
 
 function cleanMember(member) {
@@ -12,47 +13,151 @@ function cleanMember(member) {
   return source ? { ...source, nombre: text(source.nombre || source.name), instrumento: instrument(source.instrumento), studentId: text(source.studentId), participanteId: text(source.participanteId) } : null;
 }
 
-/** Candidates use recorded identities; name similarities never link sources. */
-export function buildEnsembleCandidates({ participants = [], students = [] } = {}) {
-  const candidates = new Map();
-  const add = (candidate, source) => {
-    if (!candidate.nombre) return;
-    const detail = [source, candidate.instrumento ? `Instrumento: ${candidate.instrumento}` : '', candidate.docente ? `Docente: ${candidate.docente}` : ''].filter(Boolean);
-    if (!candidates.has(candidate.key)) candidates.set(candidate.key, { candidate: { ...candidate }, details: new Set(detail) });
-    else {
-      const existing = candidates.get(candidate.key);
-      for (const field of ['nombre', 'instrumento', 'docente', 'studentId', 'participanteId']) if (!existing.candidate[field] && candidate[field]) existing.candidate[field] = candidate[field];
-      for (const entry of detail) existing.details.add(entry);
-    }
-  };
-  const eventRows = rows(participants).filter(row => row && typeof row === 'object');
-  // Individual event instruments take priority over ensemble and RIP profiles.
-  eventRows.forEach((row, index) => {
-    if (ensemble(row)) return;
+/** Only existing individual registrations can be added to a new ensemble. */
+export function buildEnsembleCandidates({ participants = [] } = {}) {
+  const individuals = rows(participants).filter(row => row && typeof row === 'object' && !ensemble(row));
+  const idCounts = new Map();
+  for (const row of individuals) {
+    const id = text(row.id || row.participanteId);
+    if (id) idCounts.set(id, (idCounts.get(id) || 0) + 1);
+  }
+  return individuals.flatMap(row => {
     const nombre = text(row.estudianteGrupo || row.nombre || row.name);
-    const studentId = text(row.studentId);
     const participanteId = text(row.id || row.participanteId);
-    const key = studentId ? `s:${studentId}` : participanteId ? `e:${participanteId}` : `legacy:evento:${index}:${normalizarNombre(nombre)}`;
-    add({ key, nombre, studentId, participanteId, instrumento: instrument(row.instrumento), docente: text(row.docente) }, 'Participante de esta muestra');
+    if (!nombre || !participanteId || idCounts.get(participanteId) !== 1) return [];
+    const instrumento = instrument(row.instrumento);
+    const docente = text(row.docente);
+    return [{ key: `e:${participanteId}`, nombre, studentId: text(row.studentId), participanteId, instrumento, docente,
+      detail: ['Inscrito en esta muestra', instrumento ? `Instrumento: ${instrumento}` : '', docente ? `Docente: ${docente}` : ''].filter(Boolean).join(' · ') }];
   });
-  eventRows.forEach((row, rowIndex) => {
-    if (!ensemble(row)) return;
-    rows(row.integrantes).forEach((raw, memberIndex) => {
+}
+
+const participantId = row => text(row?.id || row?.participanteId);
+const eventId = row => text(row?.eventoId || row?.eventId);
+const scopedId = (event, id) => JSON.stringify([event, id]);
+
+function addIndex(index, key, value) {
+  if (!index.has(key)) index.set(key, []);
+  index.get(key).push(value);
+}
+
+/** Resolve member links once; names and ambiguous identities never establish a link. */
+export function buildEnsembleParticipationIndex(participants = []) {
+  const participantsRows = rows(participants).filter(row => row && typeof row === 'object');
+  const individuals = participantsRows.filter(row => !ensemble(row));
+  const ensembles = participantsRows.filter(ensemble);
+  const byId = new Map();
+  const byStudentId = new Map();
+  const groupsByParticipant = new Map(individuals.map(row => [row, []]));
+  const activeGroupsByParticipant = new Map(individuals.map(row => [row, []]));
+  const membersByEnsemble = new Map();
+  const worksByParticipant = new Map();
+  const groupWorksByParticipant = new Map(individuals.map(row => [row, new Map()]));
+  for (const row of participantsRows) {
+    const id = participantId(row);
+    if (id) addIndex(byId, scopedId(eventId(row), id), row);
+    worksByParticipant.set(row, getParticipantWorks(row));
+  }
+  for (const row of individuals) {
+    const sid = text(row.studentId);
+    if (sid) addIndex(byStudentId, scopedId(eventId(row), sid), row);
+  }
+  for (const group of ensembles) {
+    const linked = new Set();
+    const memberLinks = [];
+    for (const raw of rows(group.integrantes)) {
       const member = cleanMember(raw);
-      if (!member) return;
-      const key = member.studentId ? `s:${member.studentId}` : member.participanteId ? `e:${member.participanteId}` : `legacy:ensamble:${text(row.id) || rowIndex}:${memberIndex}:${normalizarNombre(member.nombre)}`;
-      const groupName = text(row.estudianteGrupo || row.nombrePresentacion);
-      add({ key, nombre: member.nombre, studentId: member.studentId, participanteId: member.participanteId, instrumento: member.instrumento, docente: text(member.docente || row.docente) }, groupName ? `Integrante del ensamble: ${groupName}` : 'Integrante de ensamble');
-    });
+      if (!member) continue;
+      let target = null;
+      const explicit = member.participanteId ? byId.get(scopedId(eventId(group), member.participanteId)) : null;
+      if (explicit?.length) {
+        // An explicit pointer that conflicts with another student must not fall back.
+        if (explicit.length !== 1 || ensemble(explicit[0])) continue;
+        const candidate = explicit[0];
+        const candidateSid = text(candidate.studentId);
+        if (member.studentId && candidateSid && member.studentId !== candidateSid) continue;
+        target = candidate;
+      } else if (member.studentId) {
+        const matches = byStudentId.get(scopedId(eventId(group), member.studentId));
+        if (matches?.length === 1) target = matches[0];
+      }
+      if (!target || linked.has(target)) continue;
+      linked.add(target);
+      memberLinks.push({ member, participant: target });
+      groupsByParticipant.get(target).push(group);
+      if (!cancelled(group)) {
+        activeGroupsByParticipant.get(target).push(group);
+        const groupWorks = groupWorksByParticipant.get(target);
+        for (const work of worksByParticipant.get(group)) addIndex(groupWorks, normalizarNombre(work), group);
+      }
+    }
+    membersByEnsemble.set(group, memberLinks);
+  }
+  return { participants: participantsRows, individuals, ensembles, byId, groupsByParticipant, activeGroupsByParticipant, membersByEnsemble, worksByParticipant, groupWorksByParticipant };
+}
+
+function participationIndex(value) {
+  return value?.groupsByParticipant instanceof Map ? value : buildEnsembleParticipationIndex(value);
+}
+
+function indexedParticipant(participant, index) {
+  if (index.worksByParticipant.has(participant)) return participant;
+  const id = participantId(participant);
+  if (!id) return participant;
+  const matches = index.byId.get(scopedId(eventId(participant), id));
+  if (matches?.length !== 1) return participant;
+  const match = matches[0];
+  const sid = text(participant.studentId);
+  return sid && text(match.studentId) && sid !== text(match.studentId) ? participant : match;
+}
+
+/** Return the actual ensemble registrations involving this individual registration. */
+export function getParticipantEnsembles(participant, participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  return index.groupsByParticipant.get(indexedParticipant(participant, index)) || [];
+}
+
+/** Work titles remain verbatim, while shared works are listed once per individual. */
+export function getEffectiveParticipantWorks(participant, participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  const source = indexedParticipant(participant, index);
+  const works = [...(index.worksByParticipant.get(source) || getParticipantWorks(participant))];
+  for (const group of index.activeGroupsByParticipant.get(source) || []) works.push(...index.worksByParticipant.get(group));
+  const seen = new Set();
+  return works.filter(work => {
+    const key = normalizarNombre(work);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
-  rows(students).forEach((student, index) => {
-    if (!student || typeof student !== 'object') return;
-    const nombre = text(student.nombre || student.name || student.estudiante);
-    const studentId = text(student.studentId);
-    const key = studentId ? `s:${studentId}` : `legacy:rip:${index}:${normalizarNombre(nombre)}`;
-    add({ key, nombre, studentId, participanteId: '', instrumento: instrument(student.instrumento), docente: text(student.docente) }, 'Padrón RIP');
+}
+
+/** Only linked, active ensembles replace a work's individual presentation. */
+export function getEnsemblesForParticipantWork(participant, work, participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  return index.groupWorksByParticipant.get(indexedParticipant(participant, index))?.get(normalizarNombre(text(work))) || [];
+}
+
+/** Keep ensemble works out of solo presentations without changing stored registrations. */
+export function getIndividualSoloWorks(participant, participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  const source = indexedParticipant(participant, index);
+  const shared = index.groupWorksByParticipant.get(source);
+  return (index.worksByParticipant.get(source) || getParticipantWorks(participant)).filter(work => !shared?.has(normalizarNombre(work)));
+}
+
+/** One group is one presentation; a mixed registration retains its remaining solo works. */
+export function buildPresentationCatalogue(participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  if (index.catalogue) return index.catalogue;
+  index.catalogue = index.participants.flatMap(row => {
+    if (ensemble(row)) return [{ ...row }];
+    const soloWorks = getIndividualSoloWorks(row, index);
+    const hasGroups = Boolean(index.activeGroupsByParticipant.get(row)?.length);
+    if (hasGroups && !soloWorks.length) return [];
+    return [{ ...row, repertorios: soloWorks, repertorio: soloWorks.join(' / ') }];
   });
-  return [...candidates.values()].map(({ candidate, details }) => ({ ...candidate, detail: [...details].join(' · ') }));
+  return index.catalogue;
 }
 
 /** Keep existing snapshot metadata while removing duplicate recorded identities. */
@@ -92,7 +197,7 @@ export function validateEnsembleMembers(members = []) {
   }
   if (valid.size < 2) errors.push('El ensamble necesita al menos dos integrantes distintos.');
   for (const membersWithName of names.values()) {
-    if (membersWithName.length > 1 && membersWithName.some(member => !member.studentId)) errors.push('Hay registros con el mismo nombre sin identidades de estudiante distintas. Elige sus perfiles del padrón o usa un solo registro de esa persona.');
+    if (membersWithName.length > 1 && membersWithName.some(member => !member.studentId)) errors.push('Hay registros con el mismo nombre sin identidades de estudiante distintas. Revisa sus inscripciones en Participantes o usa un solo registro de esa persona.');
   }
   return [...new Set(errors)];
 }
