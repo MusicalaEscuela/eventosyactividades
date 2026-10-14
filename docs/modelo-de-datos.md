@@ -101,7 +101,7 @@ Los estados antiguos se interpretan al mostrar una actividad: Listo, Confirmado 
 - `studentId`: identificador canónico de RIP. Queda vacío para grupos, ensambles
   o invitados que no están en el padrón; el cruce cae entonces al nombre.
 - `esEnsamble`: `true` cuando la presentación la hacen varios estudiantes.
-- `integrantes`: `[{ studentId, nombre }]`. Solo en ensambles. **Cada integrante
+- `integrantes`: `[{ studentId, nombre, instrumento, participanteId? }]`. Solo en ensambles. **Cada integrante
   cuenta como presentación propia** en el seguimiento de estudiantes.
 - `area`
 - `docente`
@@ -204,6 +204,14 @@ tarjeta se escribe el `estado` de la columna destino:
 | En riesgo / bloqueado | En riesgo, Bloqueado | `En riesgo` |
 | Listo / confirmado | Listo, Confirmado | `Listo` |
 | Cerrado | Realizado, Cancelado | `Realizado` |
+
+## Ensambles por obra en Participantes
+
+**Armar ensamble** junto a una obra abre una inscripción de ensamble con esa obra y su estudiante de origen. Si la obra ya tiene ensambles, se elige uno para editar o se declara otra presentación. El editor de Participantes permite elegir **Individual** o **Ensamble**, seleccionar estudiantes inscritos o del padrón ya conectado y especificar el instrumento o función de cada integrante. Se conservan las identidades registradas y los homónimos con identificadores distintos; no se vinculan estudiantes por parecido del nombre.
+
+Cada ensamble cuenta como una presentación con al menos dos integrantes. Las inscripciones individuales originales siguen siendo presentaciones independientes. No se eliminan sus obras, invitaciones ni historial al armar un ensamble; si una obra no se tocará también como solista, coordinación ajusta esa inscripción expresamente. Las obras e integrantes del mismo ensamble no se duplican al guardarlo. Exportar/importar reasigna las referencias de inscripción de los miembros conservando nombre, identidad e instrumento.
+
+La precarga privada del formato docente incluye `integrantesDetalle` con nombre e instrumento, sólo de lectura y sin identificadores personales. Este detalle no agrega campos a las presentaciones enviadas por el docente.
 
 ## eventos/{eventoId}/programacion/{momentoId}
 

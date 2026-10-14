@@ -199,6 +199,9 @@ function presentationHtml(data, index) {
   const absent = document.getElementById('teacherForm')?.elements.asistencia?.value === 'No' || (!document.getElementById('teacherForm') && state.ficha?.asistencia === 'No');
   const hasStudent = Boolean(String(data.estudianteGrupo || '').trim());
   const missingInstructions = absent && (!String(data.preparacion || '').trim() || !String(data.inicio || '').trim());
+  const source = Number.isInteger(data._rosterIndex) ? rosterRows()[data._rosterIndex] : null;
+  const members = Array.isArray(source?.integrantesDetalle) ? source.integrantesDetalle.filter(member => typeof member?.nombre === 'string' && member.nombre.trim()) : [];
+  const memberInstruments = members.length ? `<div class="docentes-wide docentes-note"><strong>Instrumentos de los integrantes registrados</strong>${members.map(member => `<p>${esc(member.nombre)} — ${esc(typeof member.instrumento === 'string' && member.instrumento.trim() ? member.instrumento : 'Por definir')}</p>`).join('')}</div>` : '';
   return `<details class="docentes-presentation" data-presentation="${index}"${Number.isInteger(data._rosterIndex) ? ` data-roster-index="${data._rosterIndex}"` : ''}${hasStudent ? '' : ' open'}>
     <summary><span class="docentes-summary-name">${index + 1}. <span data-presentation-title>${esc(data.estudianteGrupo || 'Nueva presentación')}</span></span><span class="docentes-summary-work" data-presentation-summary>${esc(presentationSummary(data))}</span><span data-instruction-warning class="docentes-summary-warning${missingInstructions ? '' : ' hidden'}">Completa preparación e inicio</span></summary>
     <div class="docentes-presentation-body">
@@ -213,6 +216,7 @@ function presentationHtml(data, index) {
         <label>Área artística<select name="areaArtisticaId">${areas.map(([id, label]) => option(id, label, data.areaArtisticaId)).join('')}</select></label>
         ${field('Instrumento o disciplina', 'instrumento', data.instrumento, { max: 240, placeholder: 'Piano, violín, ballet, teatro…' })}
         <label class="docentes-wide${data.tipo === 'Ensamble' ? '' : ' hidden'}" data-members-label>Integrantes del ensamble<textarea name="integrantesTexto" maxlength="3000" placeholder="Un nombre completo por línea">${esc(data.integrantesTexto)}</textarea><small>Incluye al menos dos integrantes, uno por línea.</small></label>
+        ${memberInstruments}
       </div></details>
       <details class="docentes-disclosure"><summary>Recursos y material de apoyo</summary><div class="docentes-grid">
         ${field('Recursos que necesita', 'recursos', data.recursos, { textarea: true, placeholder: 'Instrumentos, micrófonos, sillas, atriles, utilería…' })}

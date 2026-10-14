@@ -2,7 +2,7 @@ import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, q
 import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js';
 import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js';
 import { buildTeacherOptions } from './eventos-context.js';
-import { buildTeacherPreload, preloadMatchesPresentation, samePreload } from './docentes-preload.js?v=20261013-fichas-precargadas';
+import { buildTeacherPreload, preloadMatchesPresentation, samePreload } from './docentes-preload.js?v=20261014-ensambles';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const camposInstruccion = { preparacion:'Preparación', entrada:'Entrada a escena', inicio:'Señal de inicio', acompanamiento:'Acompañamiento', cierre:'Cierre', observaciones:'Observaciones' };

@@ -1,9 +1,10 @@
 import { createAnnualSystem } from "./muestras-anual.js";
-import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-docentes-compacto";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork } from "./ensambles-model.js?v=20261014-ensambles";
 import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation } from "./programacion-model.js?v=20261013-presentaciones-inscritas";
 import {
   auth,
@@ -1254,6 +1255,7 @@ function renderDetail() {
     renderDetail();
   }));
   $$("[data-action]").forEach(btn => btn.addEventListener("click", () => handleAction(btn.dataset.action)));
+  eventDetail.querySelectorAll('[data-assemble-source]').forEach(button => button.addEventListener('click', () => openEnsembleForWork(button.dataset.assembleSource, Number(button.dataset.assembleIndex))));
   attachBoardDragAndDrop();
   teacherAdmin.mount($("#teacherAdminPanel"), evento);
 }
@@ -1405,15 +1407,13 @@ function renderTabContent(tab) {
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
     return table(["Estudiante / grupo", "Área artística", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Duración", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
-      row.esEnsamble
+      participantIsEnsemble(row)
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
-           <div class="muted" style="font-size:.78rem;margin-top:3px;">🎻 ${(row.integrantes || []).map(i => escapeHtml(i.nombre)).join(", ")}</div>`
+           <span class="badge info">Ensamble</span><div class="field-hint">${normalizeEnsembleMembers(row.integrantes).map(member => `${escapeHtml(member.nombre)} · ${escapeHtml(member.instrumento || 'Instrumento por definir')}`).join('<br>')}</div>`
         : escapeHtml(row.estudianteGrupo || "Sin nombre"),
       escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
-      obrasDe(row).map(obra => (conteoObras.get(ripNorm(obra))?.length > 1)
-        ? `${escapeHtml(obra)} <span class="badge danger">Repetida</span>`
-        : escapeHtml(obra)).join("<br>"),
+      obrasDe(row).map((obra, index) => `<div class="ensemble-work">${escapeHtml(obra)}${conteoObras.get(ripNorm(obra))?.length > 1 ? ' <span class="badge danger">Repetida</span>' : ''}<button type="button" class="small-btn" data-assemble-source="${escapeHtml(row.id)}" data-assemble-index="${index}">${participantIsEnsemble(row) ? 'Editar integrantes' : 'Armar ensamble'}</button></div>`).join(''),
       row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
@@ -1530,7 +1530,7 @@ function handleAction(action) {
   if (action === "delete-event") deleteEvent();
   if (action === "add-child") openChildDialog(state.tab);
   if (action === "pick-students") openStudentPicker("individual");
-  if (action === "new-ensemble") openStudentPicker("ensamble");
+  if (action === "new-ensemble") openChildDialog('muestras', { esEnsamble: true, integrantes: [], areaArtisticaId: 'musica', modalidadPresentacionId: 'ensambles' });
   if (action === "config-participant-lists") openParticipantListsDialog();
 }
 
@@ -1628,6 +1628,50 @@ function openEventDialog(evento = null) {
   };
 }
 
+function ensembleCandidates() {
+  return buildEnsembleCandidates({ participants: state.childData.muestras, students: state.ripEstudiantes }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+function ensembleCandidateOptions(candidates) {
+  return '<option value="">Elige un estudiante registrado</option>' + candidates.map((candidate, index) => {
+    const repeated = candidates.filter(other => normalizarNombre(other.nombre) === normalizarNombre(candidate.nombre)).length > 1;
+    return `<option value="${escapeHtml(candidate.key)}">${escapeHtml(candidate.nombre + (repeated ? ` · registro ${index + 1}` : '') + (candidate.detail ? ` · ${candidate.detail}` : ''))}</option>`;
+  }).join('');
+}
+
+function ensembleMemberFromCandidate(candidate) {
+  return { nombre: candidate.nombre, studentId: candidate.studentId || '', participanteId: candidate.participanteId || '', instrumento: candidate.instrumento || '' };
+}
+
+function openEnsembleForWork(sourceId, workIndex) {
+  const source = state.childData.muestras.find(participant => participant.id === sourceId);
+  const work = source && obrasDe(source)[workIndex];
+  if (!source || !work) { toast('La inscripción cambió. Vuelve a elegir la obra.'); return; }
+  if (participantIsEnsemble(source)) { openChildDialog('muestras', source); return; }
+  const groups = findEnsemblesForWork(state.childData.muestras, work);
+  const create = () => openChildDialog('muestras', {
+    esEnsamble: true, estudianteGrupo: `Ensamble · ${work}`, repertorios: [work], repertorio: work,
+    areaArtisticaId: source.areaArtisticaId || 'musica', modalidadPresentacionId: 'ensambles',
+    docente: source.docente || '', genero: source.genero || '',
+    integrantes: [{ nombre: source.estudianteGrupo || '', studentId: source.studentId || '', participanteId: source.id, instrumento: source.instrumento || '' }]
+  });
+  if (!groups.length) { create(); return; }
+  setModal(`<h3>Ensamble de esta obra</h3><p>${escapeHtml(work)}</p><label>Esta obra ya tiene un ensamble<select name="ensambleExistente" required><option value="">Elige la presentación</option>${groups.map(group => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.estudianteGrupo || 'Ensamble')}</option>`).join('')}<option value="nuevo">Crear otro ensamble con esta obra</option></select></label><p class="field-hint">Abre el ensamble para asignar sus integrantes. Crea otro sólo si corresponde a una presentación diferente.</p>`, 'Continuar');
+  modalForm.onsubmit = event => {
+    event.preventDefault();
+    const id = new FormData(modalForm).get('ensambleExistente');
+    if (id === 'nuevo') { create(); return; }
+    const selected = state.childData.muestras.find(participant => participant.id === id);
+    if (selected) openChildDialog('muestras', selected);
+    else toast('Ese ensamble ya no está disponible. Vuelve a elegir la obra.');
+  };
+}
+
+function ensembleSignature(row) {
+  const members = normalizeEnsembleMembers(row.integrantes).map(member => member.studentId ? `s:${member.studentId}` : member.participanteId ? `e:${member.participanteId}` : `n:${normalizarNombre(member.nombre)}`).sort();
+  return JSON.stringify([row.areaArtisticaId || 'musica', [...new Set(obrasDe(row).map(normalizarNombre))].sort(), members]);
+}
+
 function openChildDialog(tab, row = null) {
   const isEdit = Boolean(row?.id);
   // row llega como null al agregar: el default de childForm solo cubre undefined.
@@ -1635,6 +1679,57 @@ function openChildDialog(tab, row = null) {
   setModal(content, isEdit ? "Guardar cambios" : "Agregar");
   let momentPresentation = null;
   let momentSelectionChanged = false;
+  let ensembleMembers = normalizeEnsembleMembers(row?.integrantes || []);
+  let childSaving = false;
+
+  if (tab === 'muestras') {
+    const type = modalForm.querySelector('[name="tipoParticipacion"]');
+    const fields = modalForm.querySelector('#ensembleMembers');
+    const list = modalForm.querySelector('#ensembleMembersList');
+    const choice = modalForm.querySelector('#ensembleStudentChoice');
+    const title = modalForm.querySelector('#participantNameLabel');
+    let candidates = ensembleCandidates();
+    const readMembers = () => {
+      list.querySelectorAll('[data-member-instrument]').forEach(input => { ensembleMembers[Number(input.dataset.memberInstrument)].instrumento = input.value.trim(); });
+    };
+    const renderMembers = () => {
+      list.innerHTML = ensembleMembers.map((member, index) => `<div class="ensemble-member"><div><strong>${escapeHtml(member.nombre || 'Integrante')}</strong><label>Instrumento / función<input data-member-instrument="${index}" value="${escapeHtml(member.instrumento || '')}" placeholder="Ej.: violín, piano, cello" /></label></div><button type="button" class="small-btn danger" data-remove-member="${index}">Quitar</button></div>`).join('') || '<p class="field-hint">Agrega al menos dos integrantes.</p>';
+    };
+    const updateType = () => {
+      readMembers();
+      const group = type.value === 'Ensamble';
+      fields.classList.toggle('hidden', !group);
+      title.textContent = group ? 'Nombre del ensamble' : 'Estudiante o grupo';
+      const name = modalForm.querySelector('[name="estudianteGrupo"]');
+      if (group) name.removeAttribute('list');
+      else name.setAttribute('list', 'estudiantesDisponibles');
+      const holder = modalForm.querySelector('#participantTeacherHistory');
+      holder.dataset.ensemble = String(group);
+      const studentId = modalForm.querySelector('[name="studentId"]');
+      const preservedId = !participantIsEnsemble(row) && normalizarNombre(name.value) === normalizarNombre(row?.estudianteGrupo) ? row?.studentId || '' : '';
+      studentId.value = group ? '' : preservedId || buscarEnPadron(name.value)?.studentId || '';
+      refreshParticipantTeacherContext();
+    };
+    choice.addEventListener('focus', () => { candidates = ensembleCandidates(); choice.innerHTML = ensembleCandidateOptions(candidates); });
+    modalForm.querySelector('#addEnsembleStudent').addEventListener('click', () => {
+      readMembers();
+      const candidate = candidates.find(option => option.key === choice.value);
+      if (!candidate) { toast('Elige un estudiante de la lista.'); return; }
+      const next = normalizeEnsembleMembers([...ensembleMembers, ensembleMemberFromCandidate(candidate)]);
+      if (next.length === ensembleMembers.length) { toast('Este estudiante ya está en el ensamble.'); return; }
+      const errors = validateEnsembleMembers(next).filter(message => !message.includes('al menos dos'));
+      if (errors.length) { toast(errors.join(' ')); return; }
+      ensembleMembers = next; renderMembers(); choice.value = '';
+    });
+    list.addEventListener('click', event => {
+      const button = event.target.closest('[data-remove-member]');
+      if (!button) return;
+      readMembers(); ensembleMembers.splice(Number(button.dataset.removeMember), 1); renderMembers();
+    });
+    list.addEventListener('input', readMembers);
+    type.addEventListener('change', updateType);
+    renderMembers(); updateType();
+  }
 
   if (tab === "actividades") {
     const activityState = modalForm.querySelector('[name="estado"]');
@@ -1805,14 +1900,14 @@ function openChildDialog(tab, row = null) {
   if (estudianteInput) {
     const actualizarEstado = () => {
       const oculto = modalForm.querySelector('[name="studentId"]');
-      const ensemble = participantIsEnsemble(row);
+      const ensemble = modalForm.querySelector('[name="tipoParticipacion"]')?.value === 'Ensamble';
       const unchangedName = normalizarNombre(estudianteInput.value) === normalizarNombre(row?.estudianteGrupo);
       const preservedId = unchangedName ? row?.studentId || '' : '';
       const est = ensemble ? null : buscarEnPadron(estudianteInput.value, preservedId);
       if (oculto) oculto.value = ensemble ? '' : preservedId || est?.studentId || '';
       const hint = modalForm.querySelector("#estadoEstudiante");
       if (hint) {
-        hint.textContent = estadoEstudianteHint({ ...row, estudianteGrupo: estudianteInput.value, studentId: oculto?.value || '' });
+        hint.textContent = estadoEstudianteHint({ ...row, esEnsamble: ensemble, tipo: ensemble ? 'Ensamble' : 'Individual', integrantes: ensemble ? ensembleMembers : [], estudianteGrupo: estudianteInput.value, studentId: oculto?.value || '' });
         hint.classList.toggle("hint-alerta", Boolean(est) && est.nivel !== "activo");
         hint.classList.toggle("hint-ok", Boolean(est) && est.nivel === "activo");
       }
@@ -1853,6 +1948,7 @@ function openChildDialog(tab, row = null) {
 
   modalForm.onsubmit = async (submitEvent) => {
     submitEvent.preventDefault();
+    if (childSaving) return;
     const formData = new FormData(modalForm);
     const data = {};
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
@@ -1885,6 +1981,16 @@ function openChildDialog(tab, row = null) {
       }
     }
     if (tab === "muestras") {
+      data.esEnsamble = data.tipoParticipacion === 'Ensamble';
+      data.tipo = data.esEnsamble ? 'Ensamble' : 'Individual';
+      delete data.tipoParticipacion;
+      data.integrantes = data.esEnsamble ? normalizeEnsembleMembers(ensembleMembers) : [];
+      data.integrantesTexto = data.esEnsamble ? data.integrantes.map(member => member.nombre).join('\n') : '';
+      if (data.esEnsamble) {
+        const errors = validateEnsembleMembers(data.integrantes);
+        if (errors.length) { toast(errors.join(' ')); return; }
+        data.studentId = '';
+      }
       annualSystem.normalizeParticipant(data, row || {});
       const cantidadInvitados = Math.max(0, Number.parseInt(formData.get("invitadosCantidad"), 10) || 0);
       data.tieneInvitados = formData.has("tieneInvitados") || cantidadInvitados > 0;
@@ -1903,10 +2009,17 @@ function openChildDialog(tab, row = null) {
       // Se conserva el texto para que las tablas, exportaciones y registros anteriores sigan compatibles.
       data.recursos = seleccionados.join(", ");
       delete data.recursoOtro;
+      if (data.esEnsamble) {
+        const duplicate = state.childData.muestras.find(participant => participant.id !== row?.id && participantIsEnsemble(participant) && ensembleSignature(participant) === ensembleSignature(data));
+        if (duplicate) { toast('Ya existe un ensamble con esas obras e integrantes. Abre su inscripción para editarla.'); return; }
+      }
     }
     data.updatedAt = serverTimestamp();
     data.updatedBy = state.user.email;
 
+    childSaving = true;
+    const submitButton = modalForm.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
       const path = collection(db, COLLECTION, state.selectedEventId, tab);
       if (isEdit) {
@@ -1923,6 +2036,9 @@ function openChildDialog(tab, row = null) {
     } catch (error) {
       console.error(error);
       toast("No se pudo guardar el registro.");
+    } finally {
+      childSaving = false;
+      if (submitButton?.isConnected) submitButton.disabled = false;
     }
   };
 }
@@ -2038,11 +2154,13 @@ function childForm(tab, row = {}) {
     return `
       <h3>${row.id ? "Editar muestra" : "Nueva muestra"}</h3>
       <div class="form-grid">
-        <label class="wide">Estudiante o grupo
+        <label class="wide">Tipo de participación<select name="tipoParticipacion"><option value="Individual" ${participantIsEnsemble(row) ? '' : 'selected'}>Individual</option><option value="Ensamble" ${participantIsEnsemble(row) ? 'selected' : ''}>Ensamble · varios estudiantes</option></select></label>
+        <label class="wide"><span id="participantNameLabel">${participantIsEnsemble(row) ? 'Nombre del ensamble' : 'Estudiante o grupo'}</span>
           <input name="estudianteGrupo" list="estudiantesDisponibles" required value="${escapeHtml(row.estudianteGrupo || "")}" placeholder="Busca en el padrón o escribe un grupo" />
           <input type="hidden" name="studentId" value="${escapeHtml(row.studentId || "")}" />
           <span class="field-hint" id="estadoEstudiante">${estadoEstudianteHint(row)}</span>
         </label>
+        <fieldset class="wide form-section ${participantIsEnsemble(row) ? '' : 'hidden'}" id="ensembleMembers"><legend>Integrantes de esta presentación</legend><div class="ensemble-picker"><label>Estudiante registrado<select id="ensembleStudentChoice">${ensembleCandidateOptions(ensembleCandidates())}</select></label><button type="button" class="small-btn" id="addEnsembleStudent">Agregar integrante</button></div><div id="ensembleMembersList"></div><p class="field-hint">El ensamble cuenta como una presentación. Cada integrante conserva su identidad y su instrumento. Las inscripciones individuales siguen siendo presentaciones independientes; revisa sus obras si ya no se tocarán como solista.</p></fieldset>
         ${annualSystem.areaField(row)}
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
@@ -2465,6 +2583,7 @@ async function importEventFromFile(file) {
     delete data._exportId;
     // Los IDs cambian al importar; sin una referencia única se conserva sólo la copia guardada.
     if (child === "programacion" && "participanteId" in data) data.participanteId = participantIds.get(data.participanteId) || "";
+    if (child === 'muestras' && Array.isArray(data.integrantes)) data.integrantes = data.integrantes.map(member => member && typeof member === 'object' && 'participanteId' in member ? { ...member, participanteId: participantIds.get(member.participanteId) || '' } : member);
     batch.set(ref, { ...data, createdAt: serverTimestamp(), createdByEmail: state.user.email, createdByName: state.user.displayName || state.user.email });
   });
   await batch.commit();

@@ -21,7 +21,7 @@ function presentationFromInscription(row, docenteId, docenteNombre) {
   const repertorios = Array.isArray(row.repertorios) ? row.repertorios.filter(value => typeof value === 'string' && value.trim()) : [];
   const recursos = Array.isArray(row.recursosSeleccionados) ? row.recursosSeleccionados.filter(value => typeof value === 'string' && value.trim()) : [];
   const ensemble = Boolean(row.esEnsamble || row.tipo === 'Ensamble' || row.integrantes?.length);
-  const integrantesTexto = texto(row.integrantesTexto) || (Array.isArray(row.integrantes) ? row.integrantes.map(member => typeof member === 'string' ? member : texto(member?.nombre)).filter(Boolean).join('\n') : '');
+  const integrantesTexto = (Array.isArray(row.integrantes) ? row.integrantes.map(member => typeof member === 'string' ? member : texto(member?.nombre)).filter(Boolean).join('\n') : '') || texto(row.integrantesTexto);
   const duration = typeof row.duracionMin === 'string' ? row.duracionMin.replace(',', '.') : row.duracionMin;
   const title = areaArtisticaId === 'artes-plasticas' ? texto(row.tituloObra) : ['danza', 'teatro'].includes(areaArtisticaId) ? texto(row.nombrePresentacion) : '';
   return {
@@ -44,9 +44,13 @@ export function buildTeacherPreload({ eventoId, docenteId, docenteNombre, partic
       normalized = validateFichaInput({ eventoId, docenteId, docenteNombre, estado: 'Borrador', presentaciones: [presentationFromInscription(row, docenteId, docenteNombre)] }).presentaciones[0];
     } catch (error) { throw Error(`${row.estudianteGrupo || `Inscripción ${index + 1}`}: ${error.message}`); }
     const { id, ...presentation } = normalized;
+    const integrantesDetalle = Array.isArray(row.integrantes) ? row.integrantes.map(member => ({
+      nombre: texto(typeof member === 'string' ? member : member?.nombre).trim(),
+      instrumento: texto(typeof member === 'object' && member ? member.instrumento : '').trim()
+    })).filter(member => member.nombre) : [];
     const sourceId = texto(row.id);
     const validId = sourceId && !sourceId.includes('/') && !['.', '..'].includes(sourceId) && new TextEncoder().encode(sourceId).length <= 1500;
-    return { ...presentation, ...(validId ? { inscripcionId: sourceId } : {}) };
+    return { ...presentation, integrantesDetalle, ...(validId ? { inscripcionId: sourceId } : {}) };
   });
   if (new TextEncoder().encode(JSON.stringify(estudiantesPrecargados)).length > 850000) throw Error('El listado completo supera el tamaño de una ficha. Revisa las inscripciones y sus textos antes de prepararla; no se recortaron datos.');
   if (!initialize) return { estudiantesPrecargados, normalized: null, total: rows.length, seeded: 0, excess: Math.max(0, rows.length - MAX_PRESENTACIONES) };

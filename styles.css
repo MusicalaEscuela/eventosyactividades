@@ -448,6 +448,12 @@ td { font-size: .88rem; line-height: 1.45; }
 .check-card:has(input:checked) { border-color: rgba(87, 41, 255, .5); background: rgba(87, 41, 255, .07); color: var(--violeta-beethoven); }
 .check-card input { width: 16px; height: 16px; accent-color: var(--violeta-beethoven); }
 .otro-recurso { display: block; margin-top: 12px; }
+.ensemble-work { display: grid; justify-items: start; gap: 6px; margin-bottom: 12px; }
+.ensemble-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 14px; }
+.ensemble-picker > label { flex: 1 1 260px; min-width: 0; }
+.ensemble-member { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ensemble-member > div { flex: 1 1 220px; min-width: 0; }
+.ensemble-member label { margin-top: 6px; }
 
 .empty-state .btn { margin-top: 16px; }
 
