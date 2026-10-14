@@ -1,5 +1,5 @@
 import { createAnnualSystem } from "./muestras-anual.js";
-import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-reutilizar";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261013-docentes-compacto";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";

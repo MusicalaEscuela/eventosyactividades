@@ -1,6 +1,6 @@
 # Formato docente de eventos y muestras
 
-`docentes.html` abre el formulario sin iniciar sesión. El catálogo publicado por coordinación contiene únicamente el título, fecha, lugar, plazo y nombres de docentes habilitados. Los estudiantes y las instrucciones permanecen en fichas privadas.
+`docentes.html` abre el formulario sin iniciar sesión. El catálogo publicado por coordinación contiene el título, fecha, lugar, plazo, docentes habilitados y la indicación de cuáles tienen ficha privada preparada. Los estudiantes y las instrucciones permanecen en fichas privadas; el catálogo no contiene nombres de estudiantes ni enlaces privados.
 
 La configuración reúne automáticamente los nombres ya asignados a participantes, Personas, fichas guardadas y otras convocatorias. La coordinación puede seleccionar en un paso los docentes de esta muestra. Los nombres equivalentes no se repiten; prevalecen las identidades reservadas para conservar las fichas y sus enlaces.
 
@@ -24,7 +24,11 @@ Cada guardado aumenta la revisión exactamente en uno. La transacción rechaza u
 
 ## Presentaciones e inscripción
 
-Una ficha admite hasta 20 presentaciones, identificadas de forma estable como `p01` a `p20`. Se reciben nombres de estudiantes e integrantes escritos por el docente; la página pública no expone identificadores ni contactos del padrón. Se admiten individuales y ensambles de Música, Danza, Teatro y Artes Plásticas.
+Una ficha admite hasta 20 presentaciones, identificadas de forma estable como `p01` a `p20`. Coordinación puede prepararla con los estudiantes o grupos asignados al docente en Participantes de ese evento, reutilizando su repertorio, área, instrumento, duración, recursos e integrantes. El docente entra por su enlace privado y elige en **Estudiantes de esta muestra** para abrir una presentación existente o agregarla sin volver a escribir sus datos. También puede proponer una presentación nueva. La página general no expone estudiantes ni contactos del padrón. Se admiten individuales y ensambles de Música, Danza, Teatro y Artes Plásticas.
+
+La precarga se guarda como `estudiantesPrecargados` en el padre de la ficha privada y sólo coordinación puede actualizarla. Preparar nuevamente una ficha existente actualiza las opciones disponibles sin reemplazar los borradores, las instrucciones ni el enlace. El envío público conserva estos datos de referencia y no modifica las inscripciones confirmadas en Participantes.
+
+El formulario muestra primero la presencia del docente y las presentaciones resumidas. Los datos complementarios, recursos e instrucciones adicionales se agrupan en secciones desplegables, conservando todos los campos anteriores. Si el docente no asistirá, se abren las indicaciones de preparación e inicio que debe completar antes de enviar.
 
 Para enviar se exige al menos una presentación, estudiante o ensamble, repertorio y duración positiva. Artes Plásticas permite duración cero y registra de 1 a 20 obras. Un ensamble requiere integrantes; si el docente indica que no asistirá, cada presentación requiere preparación y señal de inicio. Los textos tienen límites en la interfaz y en las reglas; los recursos enlazados sólo admiten HTTP o HTTPS.
 
@@ -39,6 +43,8 @@ Las coincidencias se revisan también entre propuestas de una misma ficha. Si un
 Al cerrar, archivar o eliminar un evento, su convocatoria queda cerrada en la misma escritura. Cambiar el título, fecha o lugar actualiza el catálogo público. Volver a activar el evento requiere abrir sus inscripciones expresamente.
 
 ## Despliegue y comprobación
+
+La precarga privada y el formulario resumido utilizan las reglas ya existentes: coordinación escribe los datos de referencia, y el guardado público sólo modifica los campos permitidos de la ficha. No se abre la lectura pública de Participantes ni se agregan datos de estudiantes al catálogo.
 
 Publicar los archivos en GitHub Pages requiere desplegar además las reglas aditivas de este proyecto Firebase (`muestras-de-proceso`). Las reglas originales de eventos, configuración, personas y lugares conservan sus permisos. El formulario depende de las nuevas reglas; publicar HTML sin ellas no habilita el guardado.
 

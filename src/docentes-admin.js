@@ -2,6 +2,7 @@ import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, q
 import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js';
 import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js';
 import { buildTeacherOptions } from './eventos-context.js';
+import { buildTeacherPreload, preloadMatchesPresentation, samePreload } from './docentes-preload.js?v=20261013-fichas-precargadas';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const camposInstruccion = { preparacion:'Preparación', entrada:'Entrada a escena', inicio:'Señal de inicio', acompanamiento:'Acompañamiento', cierre:'Cierre', observaciones:'Observaciones' };
@@ -17,39 +18,152 @@ const inscripcionesAnteriores = (ficha, propuestas, existentes) => [...new Set(O
   .map(id => existentes.find(row => row.id === id)).filter(row => row && !propuestas.some(p => coincidenciasPresentacion(p, [row]).some(m => m.exacta)));
 
 export function createTeacherAdmin({ user, people, teacherCandidates = people, students, annual, setModal, modalForm, modal, toast }) {
-  let root, event, config = null, fichas = [], unsubs = [], opened = false, error = '', ready = false;
-  function stop() { unsubs.forEach(fn => fn()); unsubs = []; event = null; root = null; fichas = []; config = null; ready = false; }
+  let root, event, config = null, fichas = [], unsubs = [], opened = false, error = '', ready = false, generation = 0, preparing = false, prepareMessage = '';
+  function stop() { generation++; unsubs.forEach(fn => fn()); unsubs = []; event = null; root = null; fichas = []; config = null; ready = false; preparing = false; prepareMessage = ''; }
   function mount(element, selectedEvent) {
     opened = root?.querySelector('details')?.open || false;
     root = element;
     if (!root) return;
     if (event?.id !== selectedEvent.id) {
-      unsubs.forEach(fn => fn()); unsubs = []; event = selectedEvent; ready = false; error = ''; config = null; fichas = [];
+      generation++; unsubs.forEach(fn => fn()); unsubs = []; event = selectedEvent; ready = false; error = ''; config = null; fichas = []; preparing = false; prepareMessage = '';
       unsubs.push(onSnapshot(doc(db, 'convocatoriasDocentes', event.id), s => { config = s.exists() ? s.data() : null; ready = true; render(); }, e => { error = e.message; render(); }));
       unsubs.push(onSnapshot(query(collection(db, 'fichasDocentes'), where('eventoId', '==', event.id)), s => { fichas = s.docs.map(d => ({ token: d.id, ...d.data() })).filter(f => !f.revocada).sort((a,b) => a.docenteNombre.localeCompare(b.docenteNombre)); render(); }, e => { error = e.message; render(); }));
     } else event = selectedEvent;
     render();
   }
-  async function copy(value) { try { await navigator.clipboard.writeText(value); toast('Enlace copiado.'); } catch { setModal(`<h3>Copiar enlace</h3><label>Enlace<input readonly value="${esc(value)}" /></label>`, null); } }
+  async function copy(value, active = () => true) { try { await navigator.clipboard.writeText(value); if (active()) toast('Enlace copiado.'); } catch { if (active()) setModal(`<h3>Copiar enlace</h3><label>Enlace<input readonly value="${esc(value)}" /></label>`, null); } }
   const publicUrl = () => { const u = new URL('docentes.html', location.href); u.searchParams.set('evento', event.id); return u.href; };
+  const currentContext = () => { const id = event?.id, version = generation, email = user()?.email; return { id, email, active: () => generation === version && event?.id === id && user()?.email === email && Boolean(email) }; };
+  function preparationSummary(results, failures = []) {
+    const counts = results.map(result => `${result.name}: ${result.total} inscripción(es), ${result.created ? result.seeded : 'respuestas anteriores conservadas'}${result.created ? ' presentación(es) precargada(s)' : ''}${result.excess ? `; el listado completo está disponible, la ficha admite hasta 20 presentaciones` : ''}`);
+    return `${results.length} ficha(s) preparadas y verificadas.${counts.length ? ' ' + counts.join(' · ') : ''}${failures.length ? ' Pendientes: ' + failures.join(' · ') : ''}`;
+  }
+  async function prepareTeacher(docenteId, context, expectedToken = '') {
+    if (!context.active()) throw Error('La muestra o la sesión cambió. Vuelve a abrir el panel.');
+    const catalogRef = doc(db, 'convocatoriasDocentes', context.id);
+    const reserveRef = doc(catalogRef, 'reservas', docenteId);
+    const [catalog, participants, previousFichas] = await Promise.all([
+      getDocFromServer(catalogRef), getDocsFromServer(collection(db, 'eventos', context.id, 'muestras')),
+      getDocsFromServer(query(collection(db, 'fichasDocentes'), where('eventoId', '==', context.id)))
+    ]);
+    const name = catalog.data()?.docentes?.[docenteId];
+    if (!catalog.exists() || !name) throw Error('Este docente ya no está habilitado. Revisa la configuración.');
+    const candidates = previousFichas.docs.filter(snapshot => snapshot.data().docenteId === docenteId && !snapshot.data().revocada);
+    const newToken = randomToken();
+    const prepared = await runTransaction(db, async tx => {
+      const [currentCatalog, canonical, reservation, ...currentRows] = await Promise.all([
+        tx.get(catalogRef), tx.get(doc(db, 'eventos', context.id)), tx.get(reserveRef), ...participants.docs.map(snapshot => tx.get(snapshot.ref))
+      ]);
+      if (!context.active()) throw Error('La muestra o la sesión cambió. Vuelve a abrir el panel.');
+      if (!canonical.exists() || ['Realizado','No realizado','Archivado'].includes(canonical.data().estado)) throw Error('Este evento está cerrado. Sus enlaces existentes se conservan para consulta.');
+      if (!currentCatalog.exists() || currentCatalog.data().docentes?.[docenteId] !== name) throw Error('Los docentes habilitados cambiaron. Vuelve a preparar la ficha.');
+      if (!reservation.exists() && candidates.length > 1) throw Error('Hay varias fichas de este docente. Revisa y recupera el enlace vigente antes de prepararlo.');
+      const token = reservation.exists() ? reservation.data().fichaToken : candidates[0]?.id || newToken;
+      if (!/^[a-f0-9]{64}$/.test(token || '') || expectedToken && token !== expectedToken) throw Error('El enlace privado cambió. Actualiza el panel y usa el vigente.');
+      const fichaRef = doc(db, 'fichasDocentes', token);
+      const currentFicha = await tx.get(fichaRef);
+      const created = !currentFicha.exists();
+      const original = currentFicha.data();
+      if (created && (reservation.exists() || candidates.length)) throw Error('La reserva apunta a una ficha que no está disponible. Recupera su enlace desde la revisión.');
+      if (!created && (original.revocada !== false || original.eventoId !== context.id || original.docenteId !== docenteId)) throw Error('La reserva no corresponde a una ficha vigente de este docente. Revisa su enlace.');
+      if (!created && original.docenteNombre !== name) throw Error('El nombre habilitado difiere del nombre original de la ficha. Reutiliza el registro y la grafía de la ficha existente en la configuración antes de compartir su enlace.');
+      const preload = buildTeacherPreload({ eventoId: context.id, docenteId, docenteNombre: name, participants: currentRows.filter(snapshot => snapshot.exists()).map(snapshot => ({ ...snapshot.data(), id: snapshot.id })), initialize: created });
+      if (created && preload.normalized.docenteNombre !== name) throw Error('El nombre habilitado tiene espacios adicionales. Corrígelo en la configuración antes de preparar la ficha.');
+      if (!context.active()) throw Error('La muestra o la sesión cambió. Vuelve a abrir el panel.');
+      if (created) {
+        const { presentaciones, ...fields } = preload.normalized;
+        tx.set(fichaRef, { ...fields, revision: 1, cantidadPresentaciones: presentaciones.length, estudiantesPrecargados: preload.estudiantesPrecargados, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), revocada: false, reabiertaHasta: null, comentarioCoordinacion: '' });
+        presentaciones.forEach(({ id, ...presentation }) => tx.set(doc(fichaRef, 'presentaciones', id), { ...presentation, revision: 1, updatedAt: serverTimestamp() }));
+      } else tx.update(fichaRef, { estudiantesPrecargados: preload.estudiantesPrecargados, updatedAt: serverTimestamp() });
+      if (!reservation.exists()) tx.set(reserveRef, { fichaToken: token, createdAt: serverTimestamp() });
+      const marked = Array.isArray(currentCatalog.data().fichasPrivadasPreparadas) ? currentCatalog.data().fichasPrivadasPreparadas.filter(id => currentCatalog.data().docentes?.[id]) : [];
+      tx.update(catalogRef, { fichasPrivadasPreparadas: [...new Set([...marked, docenteId])], updatedAt: serverTimestamp(), updatedBy: context.email });
+      return { token, name, created, ...preload };
+    });
+    const fichaRef = doc(db, 'fichasDocentes', prepared.token);
+    const [savedFicha, savedReservation, savedCatalog, savedChildren] = await Promise.all([
+      getDocFromServer(fichaRef), getDocFromServer(reserveRef), getDocFromServer(catalogRef),
+      prepared.created ? getDocsFromServer(collection(fichaRef, 'presentaciones')) : Promise.resolve(null)
+    ]);
+    const stored = savedFicha.data();
+    if (!savedFicha.exists() || stored.revocada || stored.eventoId !== context.id || stored.docenteId !== docenteId || stored.docenteNombre !== prepared.name || savedReservation.data()?.fichaToken !== prepared.token || !samePreload(stored.estudiantesPrecargados, prepared.estudiantesPrecargados) || savedCatalog.data()?.docentes?.[docenteId] !== prepared.name || !savedCatalog.data()?.fichasPrivadasPreparadas?.includes(docenteId)) throw Error('La ficha se guardó, pero no pude verificar su enlace y listado completo. Vuelve a preparar el enlace antes de compartirlo.');
+    if (prepared.created && (stored.revision !== 1 || stored.cantidadPresentaciones !== prepared.seeded || savedChildren.docs.length !== prepared.seeded || prepared.normalized.presentaciones.some(({ id, ...presentation }) => {
+      const child = savedChildren.docs.find(snapshot => snapshot.id === id)?.data();
+      return !child || child.revision !== 1 || Object.entries(presentation).some(([key, value]) => child[key] !== value);
+    }))) throw Error('No pude verificar todas las presentaciones precargadas. Abre la ficha antes de compartirla.');
+    if (!context.active()) throw Error('La muestra o la sesión cambió. El panel actual no se modificó.');
+    return prepared;
+  }
+  async function prepareMany(ids, context, progress = () => {}) {
+    const results = [], failures = [];
+    for (const id of ids) {
+      if (!context.active()) throw Error('La muestra o la sesión cambió. Las fichas ya preparadas se conservan.');
+      progress(results.length + failures.length + 1, ids.length);
+      try { results.push(await prepareTeacher(id, context)); } catch (error) {
+        if (!context.active()) throw error;
+        failures.push(`${config?.docentes?.[id] || id}: ${error.message}`);
+      }
+    }
+    return { results, failures };
+  }
+  async function preparePrivateLink(docenteId, token = '') {
+    if (preparing) return;
+    const context = currentContext();
+    preparing = true; prepareMessage = 'Preparando el enlace y verificando los estudiantes inscritos…'; render();
+    try {
+      const prepared = await prepareTeacher(docenteId, context, token);
+      prepareMessage = preparationSummary([prepared]); render();
+      const modalBody = modalForm.firstElementChild, wasOpen = modal.open;
+      if (context.active()) await copy(fichaUrl(prepared.token), () => context.active() && modal.open === wasOpen && modalForm.firstElementChild === modalBody);
+    } catch (error) { if (context.active()) { prepareMessage = error.message; toast(error.message); } }
+    finally { if (context.active()) { preparing = false; render(); } }
+  }
+  async function prepareAll() {
+    if (preparing) return;
+    const context = currentContext();
+    preparing = true; prepareMessage = 'Buscando docentes habilitados…'; render();
+    try {
+      const catalog = await getDocFromServer(doc(db, 'convocatoriasDocentes', context.id));
+      const ids = Object.keys(catalog.data()?.docentes || {});
+      if (!ids.length) throw Error('Habilita al menos un docente en la configuración.');
+      const prepared = await prepareMany(ids, context, (index, total) => { prepareMessage = `Preparando ficha ${index} de ${total}…`; render(); });
+      prepareMessage = preparationSummary(prepared.results, prepared.failures); toast(prepareMessage);
+    } catch (error) { if (context.active()) { prepareMessage = error.message; toast(error.message); } }
+    finally { if (context.active()) { preparing = false; render(); } }
+  }
   function render() {
     if (!root?.isConnected) return;
     const open = config?.abierta && timestampMillis(config.cierreAt) > Date.now() && !['Realizado','No realizado','Archivado'].includes(event.estado);
+    const closedEvent = ['Realizado','No realizado','Archivado'].includes(event.estado);
+    const enabled = Object.entries(config?.docentes || {});
+    const listed = new Set();
+    const card = (docenteId, name, ficha, enabledTeacher) => {
+      if (ficha) listed.add(ficha.token);
+      const details = ficha ? `${esc(ficha.estado)} · Asistirá: ${esc(ficha.asistencia)} · ${ficha.cantidadPresentaciones} presentación(es)${Array.isArray(ficha.estudiantesPrecargados) ? ` · ${ficha.estudiantesPrecargados.length} inscripción(es) en el listado` : ''}` : 'Enlace pendiente. Se cargarán los estudiantes y grupos ya asignados a este docente.';
+      const prepare = enabledTeacher && !closedEvent ? `<button type="button" class="small-btn" data-prepare-teacher="${esc(docenteId)}" data-expected-token="${esc(ficha?.token || '')}" ${preparing ? 'disabled' : ''}>Preparar y copiar enlace privado</button>` : ficha ? `<button type="button" class="small-btn" data-ficha-link="${esc(ficha.token)}" ${preparing ? 'disabled' : ''}>Copiar enlace privado</button>` : '';
+      return `<article class="teacher-admin-card"><div><strong>${esc(name)}</strong><p>${details}</p>${!enabledTeacher ? '<p class="field-hint">Docente no habilitado actualmente; se conserva su ficha.</p>' : ''}</div><div class="actions">${ficha ? `<button type="button" class="small-btn" data-review-ficha="${esc(ficha.token)}" ${preparing ? 'disabled' : ''}>Revisar ficha</button>` : ''}${prepare}</div></article>`;
+    };
+    const cards = enabled.map(([id, name]) => card(id, name, fichas.find(ficha => ficha.docenteId === id), true));
+    fichas.filter(ficha => !listed.has(ficha.token)).forEach(ficha => cards.push(card(ficha.docenteId, ficha.docenteNombre, ficha, Boolean(config?.docentes?.[ficha.docenteId]))));
     root.innerHTML = `<details ${opened ? 'open' : ''}><summary>Formato docentes · ${fichas.length} ficha${fichas.length === 1 ? '' : 's'} · ${open ? 'Inscripciones abiertas' : 'Inscripciones cerradas'}</summary>
-      <p class="muted">Los docentes guardan sus propuestas sin iniciar sesión. Las presentaciones se incorporan al evento después de revisarlas aquí.</p>
-      <div class="actions"><button type="button" class="btn btn-primary" data-teacher-config>Configurar inscripciones</button><button type="button" class="btn btn-light" data-teacher-link>Copiar enlace del formulario</button>${open ? '<button type="button" class="btn btn-light" data-teacher-close>Cerrar inscripciones</button>' : ''}</div>
+      <p class="muted">Comparte con cada docente su enlace privado con los estudiantes y grupos ya inscritos. Completan las indicaciones sin iniciar sesión; sus propuestas se revisan aquí.</p>
+      <div class="actions"><button type="button" class="btn btn-primary" data-teacher-config ${preparing ? 'disabled' : ''}>Configurar inscripciones</button><button type="button" class="btn btn-light" data-prepare-all ${preparing || !enabled.length || closedEvent ? 'disabled' : ''}>Preparar fichas con estudiantes</button><button type="button" class="btn btn-light" data-teacher-link ${preparing ? 'disabled' : ''}>Copiar enlace del formulario</button>${open ? `<button type="button" class="btn btn-light" data-teacher-close ${preparing ? 'disabled' : ''}>Cerrar inscripciones</button>` : ''}</div>
       ${error ? `<p role="alert">${esc(error)}</p>` : !ready ? '<p>Cargando…</p>' : ''}
       <p class="field-hint">${config ? `${Object.keys(config.docentes || {}).length} docentes habilitados · Cierre: ${new Date(timestampMillis(config.cierreAt)).toLocaleString('es-CO', {timeZone:'America/Bogota'})} (Bogotá)` : 'Configura los docentes y la fecha límite para abrir el formulario de esta muestra.'}</p>
-      <div class="teacher-admin-list">${fichas.map(f => `<article class="teacher-admin-card"><div><strong>${esc(f.docenteNombre)}</strong><p>${esc(f.estado)} · Asistirá: ${esc(f.asistencia)} · ${f.cantidadPresentaciones} presentación(es)</p></div><div class="actions"><button type="button" class="small-btn" data-review-ficha="${f.token}">Revisar ficha</button><button type="button" class="small-btn" data-ficha-link="${f.token}">Copiar enlace privado</button></div></article>`).join('') || '<p class="muted">Todavía no hay fichas docentes para este evento.</p>'}</div></details>`;
+      <p class="field-hint" role="status" aria-live="polite">${esc(prepareMessage)}</p>
+      <div class="teacher-admin-list">${cards.join('') || '<p class="muted">Configura los docentes habilitados para preparar sus enlaces privados.</p>'}</div></details>`;
     root.querySelector('details').addEventListener('toggle', e => { opened = e.target.open; });
     root.querySelector('[data-teacher-config]').onclick = configure;
     root.querySelector('[data-teacher-link]').onclick = () => copy(publicUrl());
+    root.querySelector('[data-prepare-all]').onclick = prepareAll;
+    root.querySelectorAll('[data-prepare-teacher]').forEach(button => button.onclick = () => preparePrivateLink(button.dataset.prepareTeacher, button.dataset.expectedToken));
     const close = root.querySelector('[data-teacher-close]');
     if (close) close.onclick = async () => { try { await updateDoc(doc(db, 'convocatoriasDocentes', event.id), { abierta:false, updatedAt:serverTimestamp(), updatedBy:user().email }); await getDocFromServer(doc(db,'convocatoriasDocentes',event.id)); toast('Inscripciones cerradas. Las fichas guardadas se conservan.'); } catch(e) { toast(e.message); } };
     root.querySelectorAll('[data-review-ficha]').forEach(b => b.onclick = () => review(b.dataset.reviewFicha));
     root.querySelectorAll('[data-ficha-link]').forEach(b => b.onclick = () => copy(fichaUrl(b.dataset.fichaLink)));
   }
   async function configure() {
+    const context = currentContext();
     const selectedEvent = { ...event };
     const eventId = selectedEvent.id;
     setModal('<h3>Inscripciones docentes</h3><p>Buscando los docentes ya registrados en esta muestra…</p>', null);
@@ -64,10 +178,10 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
       previous = catalog.exists() ? catalog.data() : null;
       options = await buildTeacherOptions({ people: teacherCandidates(), participants: rows.docs.map(d => d.data()), configured: previous?.docentes || {}, fichas: savedFichas.docs.map(d => d.data()).filter(f => !f.revocada) });
     } catch (error) {
-      if (event?.id === eventId && modal.open && modalForm.firstElementChild === loadingBody) setModal(`<h3>No pude leer los docentes</h3><p role="alert">${esc(error.message)}</p>`, null);
+      if (context.active() && modal.open && modalForm.firstElementChild === loadingBody) setModal(`<h3>No pude leer los docentes</h3><p role="alert">${esc(error.message)}</p>`, null);
       return;
     }
-    if (event?.id !== eventId || !modal.open || modalForm.firstElementChild !== loadingBody) return;
+    if (!context.active() || !modal.open || modalForm.firstElementChild !== loadingBody) return;
     const available = new Map(options.map(p => [p.id, p.name]));
     const closedEvent = ['Realizado','No realizado','Archivado'].includes(selectedEvent.estado);
     const deadline = previous?.cierreAt ? dateLocal(previous.cierreAt) : `${selectedEvent.fechaInicio || new Date().toISOString().slice(0,10)}T23:59`;
@@ -99,6 +213,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
     });
     modalForm.onsubmit = async e => {
       e.preventDefault(); const result = modalForm.querySelector('#teacherConfigResult'); const button = modalForm.querySelector('[type="submit"]');
+      const active = () => context.active() && modal.open && modalForm.contains(result);
       const fd = new FormData(modalForm); const docentes = Object.fromEntries(fd.getAll('docente').map(id => [id, available.get(id)]));
       try {
         button.disabled = true; result.textContent = 'Guardando configuración…';
@@ -128,16 +243,25 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
         const ref = doc(db,'convocatoriasDocentes',eventId);
         await runTransaction(db, async tx => {
           const [current, canonical] = await Promise.all([tx.get(ref), tx.get(doc(db, 'eventos', eventId))]);
+          if (!active()) throw Error('La configuración o la muestra cambió. Vuelve a abrir el formulario.');
           if (current.exists() !== Boolean(previous) || timestampMillis(current.data()?.updatedAt) !== timestampMillis(previous?.updatedAt)) throw Error('La configuración cambió en otra ventana. Vuelve a abrirla para guardar.');
           if (!canonical.exists() || abierta && ['Realizado','No realizado','Archivado'].includes(canonical.data().estado)) throw Error('Este evento ya está cerrado o no está disponible.');
           const latestEvent = canonical.data();
-          tx.set(ref,{...current.data(),eventoId:eventId,titulo:latestEvent.titulo || 'Muestra',fechaInicio:latestEvent.fechaInicio || '',lugar:latestEvent.lugar || '',abierta,cierreAt:fecha,docentes,updatedAt:serverTimestamp(),updatedBy:user().email});
+          const marked = Array.isArray(current.data()?.fichasPrivadasPreparadas) ? current.data().fichasPrivadasPreparadas.filter(id => docentes[id]) : [];
+          tx.set(ref,{...current.data(),eventoId:eventId,titulo:latestEvent.titulo || 'Muestra',fechaInicio:latestEvent.fechaInicio || '',lugar:latestEvent.lugar || '',abierta,cierreAt:fecha,docentes,fichasPrivadasPreparadas:marked,updatedAt:serverTimestamp(),updatedBy:user().email});
         });
         const saved = await getDocFromServer(ref);
         const stored = saved.data();
         if (!saved.exists() || stored.abierta !== abierta || timestampMillis(stored.cierreAt) !== fecha.toMillis() || Object.keys(stored.docentes || {}).length !== Object.keys(docentes).length || Object.entries(docentes).some(([id,name]) => stored.docentes?.[id] !== name)) throw Error('No pude confirmar todos los docentes guardados. Vuelve a abrir la configuración.');
-        result.textContent = 'Configuración guardada y verificada.'; toast(result.textContent); modal.close();
-      } catch(error) { result.textContent = error.message; } finally { button.disabled = false; }
+        if (!active()) return;
+        if (closedEvent || !Object.keys(docentes).length) { result.textContent = 'Configuración guardada y verificada.'; toast(result.textContent); modal.close(); return; }
+        preparing = true; render();
+        const prepared = await prepareMany(Object.keys(docentes), { ...context, active }, (index, total) => { if (active()) result.textContent = `Configuración guardada. Preparando ficha ${index} de ${total}…`; });
+        if (!active()) return;
+        prepareMessage = preparationSummary(prepared.results, prepared.failures);
+        result.textContent = 'Configuración guardada y verificada. ' + prepareMessage; toast(result.textContent);
+        if (!prepared.failures.length) modal.close();
+      } catch(error) { if (active()) result.textContent = error.message; } finally { if (context.active()) { preparing = false; render(); } if (button.isConnected) button.disabled = false; }
     };
   }
   async function reopen(token) {
@@ -164,7 +288,10 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
       const anteriores=inscripcionesAnteriores(f,loaded.presentaciones,existing);
       const cambioListado=anteriores.length ? `<aside class="teacher-duplicate-warning"><p>Estas inscripciones confirmadas ya no coinciden con la ficha: ${anteriores.map(r=>esc(r.estudianteGrupo)).join(', ')}. Puedes ajustarlas o eliminarlas desde Participantes antes de confirmar.</p><label class="check-card"><input type="checkbox" data-keep-previous />Conservar estas inscripciones anteriores en el evento</label></aside>` : '';
       const details=loaded.presentaciones.map((p,index)=>{
-        const matches=coincidenciasPresentacion(p,existing); const linked=f.confirmaciones?.[p.id];
+        const matches=coincidenciasPresentacion(p,existing);
+        const previousLink=f.confirmaciones?.[p.id];
+        const preloadedIds=[...new Set((Array.isArray(f.estudiantesPrecargados) ? f.estudiantesPrecargados : []).filter(source=>preloadMatchesPresentation(source,p)).map(source=>source.inscripcionId).filter(id=>matches.some(match=>match.exacta&&match.row.id===id&&normalizarNombre(match.row.docente)===normalizarNombre(f.docenteNombre))))];
+        const linked=matches.some(match=>match.exacta&&match.row.id===previousLink) ? previousLink : preloadedIds.length===1 ? preloadedIds[0] : '';
         const repetitions=propuestasRepetidas(p,loaded.presentaciones.slice(0,index));
         const linkedRow=matches.find(m=>m.row.id===linked)?.row || matches.find(m=>m.exacta)?.row;
         const eventArea=event.sistemaAnual?.areaArtisticaId || event.areaArtisticaId;

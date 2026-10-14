@@ -211,7 +211,9 @@ los archivos locales no despliega reglas ni inicializa documentos en producción
 
 ## Formato docente sin inicio de sesión
 
-Acceso: [docentes.html](./docentes.html). En cada evento, coordinación abre **Formato docentes → Configurar inscripciones**, selecciona los docentes y establece la fecha límite. Puede copiar el enlace de esa muestra y revisar las fichas recibidas.
+Acceso: [docentes.html](./docentes.html). En cada evento, coordinación abre **Formato docentes → Configurar inscripciones**, selecciona los docentes y establece la fecha límite. Puede preparar fichas con los estudiantes ya asignados en Participantes y copiar el enlace privado de cada docente. La página general orienta a usar ese enlace cuando la ficha está preparada.
+
+El formato docente muestra tarjetas resumidas y un selector **Estudiantes de esta muestra** para abrir o agregar presentaciones con sus datos precargados. Los campos adicionales se despliegan cuando hacen falta. Actualizar la precarga de una ficha existente conserva el enlace y los borradores; los nombres de estudiantes y sus obras permanecen dentro de esa ficha privada.
 
 La lista de docentes se arma con los nombres ya asignados a participantes, las fichas existentes, Personas y otras muestras. **Seleccionar docentes de esta muestra** marca en un paso los docentes asignados; guardar confirma la habilitación. Las fichas conservan su identidad y enlace privado.
 

@@ -2,6 +2,7 @@ import {
   listConvocatorias, getConvocatoria, loadFicha, saveFicha, fichaUrl,
   canEditFicha, validateFichaInput, PRESENTACION_LIMITES
 } from './docentes-data.js';
+import { normalizarNombre } from './docentes-model.js';
 
 const app = document.getElementById('docentesApp');
 const storageKey = 'musicala.eventos.fichas-docentes.v1';
@@ -60,6 +61,22 @@ function teacherEntries(convocatoria) {
   return Object.entries(convocatoria?.docentes || {}).filter(([, name]) => typeof name === 'string' && name.trim()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
 }
 
+function privateFichaPrepared(convocatoria, docenteId) {
+  const prepared = convocatoria?.fichasPrivadasPreparadas;
+  return Array.isArray(prepared) ? prepared.includes(docenteId) : prepared?.[docenteId] === true;
+}
+
+function updatePreparedGuidance(convocatoria, docenteId) {
+  const notice = document.getElementById('privatePreparedNotice');
+  const button = document.getElementById('startForm')?.querySelector('[type="submit"]');
+  if (!notice || !button) return;
+  const prepared = privateFichaPrepared(convocatoria, docenteId);
+  const remembered = state.localLinks.some(link => link.eventoId === (convocatoria?.id || convocatoria?.eventoId) && link.docenteId === docenteId);
+  notice.classList.toggle('hidden', !prepared);
+  notice.textContent = prepared ? remembered ? 'Este navegador recuerda el enlace de tu ficha. Puedes abrirla con el botón.' : 'Coordinación ya preparó tu ficha con los estudiantes de esta muestra. Abre el enlace privado que te enviaron; si no lo tienes, solicítalo a coordinación.' : '';
+  button.textContent = prepared && !remembered ? 'Ver indicaciones de acceso' : 'Abrir mi formato';
+}
+
 function renderStart(notice = '') {
   const openEvents = state.convocatorias.filter(windowOpen);
   state.ficha = null;
@@ -67,7 +84,7 @@ function renderStart(notice = '') {
   state.convocatoria = null;
   state.dirty = false;
   state.pendingRecovery = false;
-  app.innerHTML = `${brand}<section class="docentes-card docentes-start"><h2>Prepara tu participación en la muestra</h2><p class="docentes-lead">Elige tu nombre y una muestra abierta. Puedes guardar por partes, inscribir estudiantes y dejar las indicaciones para realizar sus presentaciones, incluso si no estarás presente.</p><p class="docentes-note">Al guardar recibirás un <strong>enlace privado para volver a tu ficha</strong>. Consérvalo: con él podrás continuar desde otro dispositivo.</p>${notice ? `<p class="docentes-note" data-tone="warning">${esc(notice)}</p>` : ''}${openEvents.length ? `<form id="startForm"><div class="docentes-grid"><label>Muestra<select id="eventChoice" required><option value="">Selecciona una muestra</option>${openEvents.map(event => option(event.id || event.eventoId, event.titulo, '')).join('')}</select></label><label>Tu nombre<select id="teacherChoice" required disabled><option value="">Primero selecciona una muestra</option></select></label></div><p id="eventInfo" class="docentes-help" aria-live="polite"></p><div class="docentes-actions"><button class="btn btn-primary" type="submit">Abrir mi formato</button></div></form>` : `<div class="docentes-note" data-tone="warning"><p>En este momento no hay muestras abiertas para nuevas inscripciones.</p><p>Si ya guardaste una ficha, puedes consultarla con tu enlace privado. Coordinación define cuándo se abre y se cierra cada muestra.</p></div>`}</section>${renderLocalLinks()}${footer}`;
+  app.innerHTML = `${brand}<section class="docentes-card docentes-start"><h2>Prepara tu participación en la muestra</h2><p class="docentes-lead">Abre el enlace privado que te envió coordinación para revisar tus estudiantes y completar su presentación. Si aún no hay una ficha preparada, elige una muestra abierta y tu nombre.</p><p class="docentes-note"><strong>Conserva tu enlace privado</strong> para volver a tu ficha desde cualquier dispositivo.</p>${notice ? `<p class="docentes-note" data-tone="warning">${esc(notice)}</p>` : ''}${openEvents.length ? `<form id="startForm"><div class="docentes-grid"><label>Muestra<select id="eventChoice" required><option value="">Selecciona una muestra</option>${openEvents.map(event => option(event.id || event.eventoId, event.titulo, '')).join('')}</select></label><label>Tu nombre<select id="teacherChoice" required disabled><option value="">Primero selecciona una muestra</option></select></label></div><p id="eventInfo" class="docentes-help" aria-live="polite"></p><p id="privatePreparedNotice" class="docentes-note hidden" aria-live="polite"></p><div class="docentes-actions"><button class="btn btn-primary" type="submit">Abrir mi formato</button></div></form>` : `<div class="docentes-note" data-tone="warning"><p>En este momento no hay muestras abiertas para nuevas inscripciones.</p><p>Si ya guardaste una ficha, puedes consultarla con tu enlace privado. Coordinación define cuándo se abre y se cierra cada muestra.</p></div>`}</section>${renderLocalLinks()}${footer}`;
   document.getElementById('eventChoice')?.addEventListener('change', event => {
     const convocatoria = state.convocatorias.find(item => (item.id || item.eventoId) === event.target.value);
     const teachers = teacherEntries(convocatoria);
@@ -76,6 +93,12 @@ function renderStart(notice = '') {
     select.innerHTML = teachers.length ? `<option value="">Selecciona tu nombre</option>${teachers.map(([id, name]) => option(id, name, '')).join('')}` : `<option value="">${convocatoria ? 'Tu nombre aún no está habilitado' : 'Primero selecciona una muestra'}</option>`;
     const info = document.getElementById('eventInfo');
     info.textContent = convocatoria ? [dateOnly(convocatoria.fechaInicio), convocatoria.lugar, convocatoria.cierreAt ? `Puedes guardar hasta ${dateText(convocatoria.cierreAt)} (hora de Bogotá).` : 'Coordinación avisará el cierre de inscripciones.'].filter(Boolean).join(' · ') : '';
+    updatePreparedGuidance(convocatoria, '');
+  });
+  document.getElementById('teacherChoice')?.addEventListener('change', event => {
+    const eventId = document.getElementById('eventChoice').value;
+    const convocatoria = state.convocatorias.find(item => (item.id || item.eventoId) === eventId);
+    updatePreparedGuidance(convocatoria, event.target.value);
   });
   document.getElementById('startForm')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -85,6 +108,11 @@ function renderStart(notice = '') {
     if (!convocatoria || !docenteId || !windowOpen(convocatoria)) return;
     const local = state.localLinks.find(item => item.eventoId === eventId && item.docenteId === docenteId);
     if (local) { navigateToToken(local.token); return; }
+    if (privateFichaPrepared(convocatoria, docenteId)) {
+      updatePreparedGuidance(convocatoria, docenteId);
+      document.getElementById('privatePreparedNotice').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     state.convocatoria = convocatoria;
     state.ficha = { eventoId: eventId, docenteId, docenteNombre: convocatoria.docentes[docenteId], asistencia: 'Por confirmar', disponibilidad: '', apoyo: '', indicacionesGenerales: '', estado: 'Borrador', revision: 0 };
     state.presentations = [blankPresentation()];
@@ -119,8 +147,213 @@ function field(label, name, value, { textarea = false, type = 'text', placeholde
   return `<label${wide ? ' class="docentes-wide"' : ''}>${esc(label)}${textarea ? `<textarea name="${esc(name)}" maxlength="${max}" placeholder="${esc(placeholder)}" ${attrs}>${esc(value)}</textarea>` : `<input name="${esc(name)}" type="${type}" value="${esc(value)}" maxlength="${max}" placeholder="${esc(placeholder)}" ${attrs} />`}${help ? `<small>${esc(help)}</small>` : ''}</label>`;
 }
 
+function rosterRows() {
+  return state.token && Array.isArray(state.ficha?.estudiantesPrecargados) ? state.ficha.estudiantesPrecargados : [];
+}
+
+function presentationKey(row, includeWork = true) {
+  return JSON.stringify([normalizarNombre(row?.estudianteGrupo), row?.tipo || 'Individual', row?.areaArtisticaId || 'musica', ...(includeWork ? [normalizarNombre(row?.repertorio)] : [])]);
+}
+
+function presentationPayload(row) {
+  const defaults = blankPresentation();
+  return Object.fromEntries(Object.keys(defaults).map(key => [key, row[key] ?? defaults[key]]));
+}
+
+function assignRosterSources(presentations, previous = [], previousRoster = []) {
+  const roster = rosterRows();
+  const used = new Set();
+  return presentations.map((row, index) => {
+    let rosterIndex = -1;
+    const old = previous[index];
+    if (Number.isInteger(old?._rosterIndex) && presentationKey(row) === presentationKey(old)) {
+      const source = previousRoster[old._rosterIndex];
+      rosterIndex = roster.findIndex(candidate => source?.inscripcionId ? candidate?.inscripcionId === source.inscripcionId : source && presentationKey(candidate) === presentationKey(source));
+    }
+    if (rosterIndex < 0 || used.has(rosterIndex)) rosterIndex = roster.findIndex((source, sourceIndex) => !used.has(sourceIndex) && presentationKey(source) === presentationKey(row));
+    if (rosterIndex < 0) {
+      const key = presentationKey(row, false);
+      const candidates = roster.map((source, sourceIndex) => ({ sourceIndex, key: presentationKey(source, false) })).filter(source => source.key === key);
+      const matchingRows = presentations.filter(candidate => presentationKey(candidate, false) === key);
+      if (candidates.length === 1 && matchingRows.length === 1 && !used.has(candidates[0].sourceIndex)) rosterIndex = candidates[0].sourceIndex;
+    }
+    if (rosterIndex >= 0) used.add(rosterIndex);
+    const { _rosterIndex, ...fields } = row;
+    return { ...fields, ...(rosterIndex >= 0 ? { _rosterIndex: rosterIndex } : {}) };
+  });
+}
+
+function rosterHtml() {
+  const roster = rosterRows();
+  if (!roster.length) return '';
+  return `<div class="docentes-roster docentes-no-print"><label>Estudiantes de esta muestra<select id="rosterStudentChoice"><option value="">Selecciona un estudiante o ensamble</option>${roster.map((row, index) => option(index, [row.estudianteGrupo || 'Participante', row.repertorio || 'Obra por completar', areas.find(([id]) => id === row.areaArtisticaId)?.[1]].filter(Boolean).join(' · '), '')).join('')}</select></label><button id="openRosterStudent" type="button" class="btn btn-light">Abrir estudiante</button><p id="rosterStatus" class="docentes-help" aria-live="polite">Esta lista fue preparada por coordinación para tu ficha. Si el estudiante ya está abajo, se abrirá su presentación.</p></div>`;
+}
+
+function presentationSummary(data) {
+  const work = String(data.repertorio || '').trim().replace(/\s+/g, ' ');
+  const duration = data.areaArtisticaId === 'artes-plasticas' ? `${Number(data.cantidadObras || 1)} obra(s)` : data.duracionMin !== '' && data.duracionMin != null ? `${data.duracionMin} min` : '';
+  return [work || 'Obra por completar', duration].filter(Boolean).join(' · ');
+}
+
 function presentationHtml(data, index) {
-  return `<details class="docentes-presentation" data-presentation="${index}" open><summary>${index + 1}. <span data-presentation-title>${esc(data.estudianteGrupo || 'Nueva presentación')}</span></summary><div class="docentes-presentation-body"><div class="docentes-grid"><label>Tipo de presentación<select name="tipo">${['Individual', 'Ensamble'].map(value => option(value, value, data.tipo)).join('')}</select></label>${field('Estudiante o nombre del ensamble', 'estudianteGrupo', data.estudianteGrupo, { max: 240, placeholder: 'Nombre completo o nombre del grupo' })}<label class="docentes-wide${data.tipo === 'Ensamble' ? '' : ' hidden'}" data-members-label>Integrantes del ensamble<textarea name="integrantesTexto" maxlength="3000" placeholder="Un nombre completo por línea">${esc(data.integrantesTexto)}</textarea><small>Incluye al menos dos integrantes. Escribe cada nombre en una línea distinta.</small></label><label>Área artística<select name="areaArtisticaId">${areas.map(([id, label]) => option(id, label, data.areaArtisticaId)).join('')}</select></label>${field('Instrumento o disciplina', 'instrumento', data.instrumento, { max: 240, placeholder: 'Piano, violín, ballet, teatro…' })}${field('Obra, repertorio o actividad', 'repertorio', data.repertorio, { textarea: true, max: 2000, placeholder: 'Incluye todas las obras, su orden y la versión que se presentará.' })}${field('Duración estimada en minutos', 'duracionMin', data.duracionMin, { type: 'number', attrs: 'min="0" max="120" step="0.5"', help: 'Máximo 120 minutos. En artes plásticas es opcional; en las otras áreas debe ser mayor que cero al enviar.' })}<label class="${data.areaArtisticaId === 'artes-plasticas' ? '' : 'hidden'}" data-artwork-label>Cantidad de obras a exhibir<input name="cantidadObras" type="number" min="1" max="20" step="1" value="${esc(data.cantidadObras || 1)}" /><small>Entre 1 y 20 obras de este estudiante o grupo.</small></label>${field('Recursos que necesita', 'recursos', data.recursos, { textarea: true, placeholder: 'Instrumentos, micrófonos, sillas, atriles, utilería, espacio…' })}${field('Enlace a pista, partitura o referencia', 'materialUrl', data.materialUrl, { type: 'url', max: 2000, placeholder: 'https://…', help: 'Asegúrate de que coordinación pueda abrirlo.' })}</div><h3>Cómo realizar esta presentación</h3><p class="docentes-help">Deja instrucciones que otra persona pueda seguir. Si no asistirás, la preparación y la señal de inicio son obligatorias al enviar.</p><div class="docentes-grid">${field('Preparación antes de salir', 'preparacion', data.preparacion, { textarea: true, placeholder: 'Qué revisar, cómo afinar, material listo, prueba de sonido…' })}${field('Entrada y ubicación en escena', 'entrada', data.entrada, { textarea: true, placeholder: 'Por dónde entra, dónde se ubica y quién ayuda.' })}${field('Señal de inicio', 'inicio', data.inicio, { textarea: true, placeholder: 'Ej.: iniciar la pista en el segundo 12 y dar cuatro tiempos.' })}${field('Acompañamiento durante la presentación', 'acompanamiento', data.acompanamiento, { textarea: true, placeholder: 'Quién acompaña y qué debe hacer si el estudiante se detiene.' })}${field('Cierre y salida', 'cierre', data.cierre, { textarea: true, placeholder: 'Cómo termina, saludo y retiro del material.' })}${field('Otras cosas a tener en cuenta', 'observaciones', data.observaciones, { textarea: true, placeholder: 'Necesidades de apoyo, detalles de montaje o indicaciones adicionales.' })}</div><button type="button" class="btn btn-ghost docentes-remove docentes-no-print" data-remove-presentation="${index}">Quitar esta presentación</button></div></details>`;
+  const absent = document.getElementById('teacherForm')?.elements.asistencia?.value === 'No' || (!document.getElementById('teacherForm') && state.ficha?.asistencia === 'No');
+  const hasStudent = Boolean(String(data.estudianteGrupo || '').trim());
+  const missingInstructions = absent && (!String(data.preparacion || '').trim() || !String(data.inicio || '').trim());
+  return `<details class="docentes-presentation" data-presentation="${index}"${Number.isInteger(data._rosterIndex) ? ` data-roster-index="${data._rosterIndex}"` : ''}${hasStudent ? '' : ' open'}>
+    <summary><span class="docentes-summary-name">${index + 1}. <span data-presentation-title>${esc(data.estudianteGrupo || 'Nueva presentación')}</span></span><span class="docentes-summary-work" data-presentation-summary>${esc(presentationSummary(data))}</span><span data-instruction-warning class="docentes-summary-warning${missingInstructions ? '' : ' hidden'}">Completa preparación e inicio</span></summary>
+    <div class="docentes-presentation-body">
+      <div class="docentes-grid">
+        ${field('Estudiante o nombre del ensamble', 'estudianteGrupo', data.estudianteGrupo, { max: 240, wide: true, placeholder: 'Nombre completo o nombre del grupo' })}
+        ${field('Obra, repertorio o actividad', 'repertorio', data.repertorio, { textarea: true, max: 2000, wide: true, placeholder: 'Incluye las obras, su orden y la versión que se presentará.' })}
+        ${field('Duración estimada en minutos', 'duracionMin', data.duracionMin, { type: 'number', attrs: 'min="0" max="120" step="0.5"', help: 'Máximo 120 minutos. En artes plásticas es opcional.' })}
+        <label class="${data.areaArtisticaId === 'artes-plasticas' ? '' : 'hidden'}" data-artwork-label>Cantidad de obras a exhibir<input name="cantidadObras" type="number" min="1" max="20" step="1" value="${esc(data.cantidadObras || 1)}" /><small>Entre 1 y 20 obras.</small></label>
+      </div>
+      <details class="docentes-disclosure"><summary>Tipo, área, instrumento e integrantes</summary><div class="docentes-grid">
+        <label>Tipo de presentación<select name="tipo">${['Individual', 'Ensamble'].map(value => option(value, value, data.tipo)).join('')}</select></label>
+        <label>Área artística<select name="areaArtisticaId">${areas.map(([id, label]) => option(id, label, data.areaArtisticaId)).join('')}</select></label>
+        ${field('Instrumento o disciplina', 'instrumento', data.instrumento, { max: 240, placeholder: 'Piano, violín, ballet, teatro…' })}
+        <label class="docentes-wide${data.tipo === 'Ensamble' ? '' : ' hidden'}" data-members-label>Integrantes del ensamble<textarea name="integrantesTexto" maxlength="3000" placeholder="Un nombre completo por línea">${esc(data.integrantesTexto)}</textarea><small>Incluye al menos dos integrantes, uno por línea.</small></label>
+      </div></details>
+      <details class="docentes-disclosure"><summary>Recursos y material de apoyo</summary><div class="docentes-grid">
+        ${field('Recursos que necesita', 'recursos', data.recursos, { textarea: true, placeholder: 'Instrumentos, micrófonos, sillas, atriles, utilería…' })}
+        ${field('Enlace a pista, partitura o referencia', 'materialUrl', data.materialUrl, { type: 'url', max: 2000, placeholder: 'https://…', help: 'Revisa que coordinación pueda abrirlo.' })}
+      </div></details>
+      <details class="docentes-disclosure docentes-instructions" data-execution-instructions${absent ? ' open' : ''}><summary data-instructions-label>${absent ? 'Instrucciones si no estarás presente' : 'Indicaciones para realizar la presentación'}</summary>
+        <p class="docentes-help" data-required-help${absent ? '' : ' hidden'}>Para enviar la ficha, completa la preparación y la señal de inicio para quien acompañe tu ausencia.</p>
+        <div class="docentes-grid">
+          ${field('Preparación antes de salir', 'preparacion', data.preparacion, { textarea: true, placeholder: 'Qué revisar, cómo afinar, material listo, prueba de sonido…' })}
+          ${field('Señal de inicio', 'inicio', data.inicio, { textarea: true, placeholder: 'Ej.: iniciar la pista en el segundo 12 y dar cuatro tiempos.' })}
+        </div>
+        <details class="docentes-disclosure"><summary>Entrada, acompañamiento, cierre y otras indicaciones</summary><div class="docentes-grid">
+          ${field('Entrada y ubicación en escena', 'entrada', data.entrada, { textarea: true, placeholder: 'Por dónde entra, dónde se ubica y quién ayuda.' })}
+          ${field('Acompañamiento durante la presentación', 'acompanamiento', data.acompanamiento, { textarea: true, placeholder: 'Quién acompaña y qué debe hacer si el estudiante se detiene.' })}
+          ${field('Cierre y salida', 'cierre', data.cierre, { textarea: true, placeholder: 'Cómo termina, saludo y retiro del material.' })}
+          ${field('Otras cosas a tener en cuenta', 'observaciones', data.observaciones, { textarea: true, placeholder: 'Necesidades de apoyo o indicaciones adicionales.' })}
+        </div></details>
+      </details>
+      <button type="button" class="btn btn-ghost docentes-remove docentes-no-print" data-remove-presentation="${index}">Quitar esta presentación</button>
+    </div>
+  </details>`;
+}
+
+function updatePresentationSummary(container) {
+  const name = container.querySelector('[name="estudianteGrupo"]').value.trim();
+  container.querySelector('[data-presentation-title]').textContent = name || 'Nueva presentación';
+  const data = Object.fromEntries(['repertorio', 'duracionMin', 'cantidadObras', 'areaArtisticaId'].map(key => [key, container.querySelector(`[name="${key}"]`).value]));
+  container.querySelector('[data-presentation-summary]').textContent = presentationSummary(data);
+  const absent = document.getElementById('teacherForm').elements.asistencia.value === 'No';
+  const missing = absent && (!container.querySelector('[name="preparacion"]').value.trim() || !container.querySelector('[name="inicio"]').value.trim());
+  container.querySelector('[data-instruction-warning]').classList.toggle('hidden', !missing);
+}
+
+function updateAttendanceDetails() {
+  const absent = document.getElementById('teacherForm').elements.asistencia.value === 'No';
+  const general = document.getElementById('generalTeacherDetails');
+  if (absent) general.open = true;
+  app.querySelectorAll('[data-presentation]').forEach(container => {
+    const instructions = container.querySelector('[data-execution-instructions]');
+    instructions.open = absent;
+    instructions.classList.toggle('docentes-required', absent);
+    container.querySelector('[data-instructions-label]').textContent = absent ? 'Instrucciones si no estarás presente' : 'Indicaciones para realizar la presentación';
+    container.querySelector('[data-required-help]').classList.toggle('hidden', !absent);
+    updatePresentationSummary(container);
+  });
+}
+
+function emptyPresentation(row) {
+  if (Number.isInteger(row._rosterIndex) || row.tipo !== 'Individual' || row.areaArtisticaId !== 'musica') return false;
+  const textFields = Object.keys(blankPresentation()).filter(key => !['tipo', 'areaArtisticaId', 'duracionMin', 'cantidadObras'].includes(key));
+  return Number(row.duracionMin || 0) === 0 && Number(row.cantidadObras || 1) === 1 && textFields.every(key => !String(row[key] || '').trim());
+}
+
+function openPresentationCard(index) {
+  const container = app.querySelector(`[data-presentation="${index}"]`);
+  if (!container) return;
+  container.open = true;
+  const absent = document.getElementById('teacherForm').elements.asistencia.value === 'No';
+  const preparation = container.querySelector('[name="preparacion"]');
+  const field = absent && !preparation.value.trim() ? preparation : container.querySelector('[name="repertorio"]');
+  field.focus({ preventScroll: true });
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function openRosterPresentation() {
+  if (state.busy) return;
+  const choice = document.getElementById('rosterStudentChoice');
+  const status = document.getElementById('rosterStatus');
+  if (choice.value === '') { status.textContent = 'Selecciona un estudiante o ensamble de la lista.'; return; }
+  const sourceIndex = Number(choice.value);
+  const roster = rosterRows();
+  const source = roster[sourceIndex];
+  if (!source || !Number.isInteger(sourceIndex)) return;
+  const current = readPresentations();
+  state.presentations = assignRosterSources(current, current, roster);
+  app.querySelectorAll('[data-presentation]').forEach((container, index) => {
+    const rosterIndex = state.presentations[index]?._rosterIndex;
+    if (Number.isInteger(rosterIndex)) container.dataset.rosterIndex = rosterIndex;
+    else delete container.dataset.rosterIndex;
+  });
+  let target = state.presentations.findIndex(row => row._rosterIndex === sourceIndex);
+  if (target >= 0) {
+    status.textContent = `Abrimos la presentación ${target + 1} de ${source.estudianteGrupo || 'este estudiante'}.`;
+    status.dataset.tone = '';
+    openPresentationCard(target);
+    return;
+  }
+  if (state.pendingRecovery || !canEditFicha(state.ficha, state.convocatoria)) {
+    status.textContent = 'Esta ficha está disponible para consulta. Solicita a coordinación que la reabra para agregar esta presentación.';
+    status.dataset.tone = 'warning';
+    return;
+  }
+  target = state.presentations.findIndex(emptyPresentation);
+  const prefilling = { ...presentationPayload(source), _rosterIndex: sourceIndex };
+  if (target >= 0) {
+    state.presentations[target] = prefilling;
+    app.querySelector(`[data-presentation="${target}"]`).outerHTML = presentationHtml(prefilling, target);
+  } else {
+    if (state.presentations.length >= 20) {
+      status.textContent = 'La ficha ya tiene 20 presentaciones. Revisa las existentes antes de agregar otra.';
+      status.dataset.tone = 'warning';
+      return;
+    }
+    target = state.presentations.length;
+    state.presentations.push(prefilling);
+    document.getElementById('presentationsList').insertAdjacentHTML('beforeend', presentationHtml(prefilling, target));
+  }
+  document.getElementById('presentationCount').textContent = `${state.presentations.length} de 20 presentaciones`;
+  setEditable(true);
+  markDirty();
+  status.textContent = 'Estudiante agregado. Guarda el borrador para conservar sus datos.';
+  status.dataset.tone = '';
+  openPresentationCard(target);
+}
+
+function revealValidationError(error) {
+  const message = String(error?.message || '');
+  const match = /Presentaci[oó]n\s+(\d+)/i.exec(message);
+  const container = match ? app.querySelector(`[data-presentation="${Number(match[1]) - 1}"]`) : null;
+  if (!container) {
+    if (/agrega/i.test(message)) document.getElementById('addPresentationBtn')?.focus();
+    return;
+  }
+  let name = 'estudianteGrupo';
+  if (/cantidad de obras/i.test(message)) name = 'cantidadObras';
+  else if (/enlace/i.test(message)) name = 'materialUrl';
+  else if (/integrantes|mismo estudiante|mismo nombre/i.test(message)) name = 'integrantesTexto';
+  else if (/preparaci[oó]n|señal de inicio/i.test(message)) name = container.querySelector('[name="preparacion"]').value.trim() ? 'inicio' : 'preparacion';
+  else {
+    const missing = ['estudianteGrupo', 'repertorio', 'duracionMin'].find(key => {
+      const value = container.querySelector(`[name="${key}"]`).value.trim();
+      return !value || (key === 'duracionMin' && !(Number(value) > 0));
+    });
+    name = missing || (/duraci[oó]n/i.test(message) ? 'duracionMin' : name);
+  }
+  const input = container.querySelector(`[name="${name}"]`);
+  for (let element = input.parentElement; element && element !== document.getElementById('teacherForm'); element = element.parentElement) {
+    if (element.tagName === 'DETAILS') element.open = true;
+  }
+  input.focus({ preventScroll: true });
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function readonlyReason() {
@@ -129,25 +362,52 @@ function readonlyReason() {
   return 'Las inscripciones están cerradas para esta ficha. Puedes consultarla e imprimirla. Coordinación puede reabrirla si necesitas corregir algo.';
 }
 
-function renderForm(savedMessage = '') {
+function renderForm(savedMessage = '', showPrivateLink = false) {
   const ficha = state.ficha;
   const convocatoria = state.convocatoria;
   const editable = canEditFicha(ficha, convocatoria);
   const reopenDate = timestampDate(ficha.reabiertaHasta);
   const activeReopen = reopenDate && reopenDate.getTime() > Date.now();
   const deadline = activeReopen ? ficha.reabiertaHasta : convocatoria.cierreAt;
-  app.innerHTML = `${brand}<section class="docentes-card"><div class="docentes-event-summary"><div><h2>${esc(convocatoria.titulo)}</h2><p class="docentes-event-meta">${esc([dateOnly(convocatoria.fechaInicio), convocatoria.lugar].filter(Boolean).join(' · '))}</p><p><strong>Docente:</strong> ${esc(ficha.docenteNombre)}</p></div><span class="docentes-badge">${esc(ficha.estado || 'Borrador')}</span></div><p class="docentes-help">${deadline ? `${editable ? activeReopen ? 'Ficha reabierta' : 'Inscripciones abiertas' : 'Plazo de inscripción'} hasta ${esc(dateText(deadline))} (hora de Bogotá).` : 'Coordinación define el cierre de inscripciones.'}</p><div id="windowNotice"${editable ? ' class="hidden"' : ' class="docentes-note" data-tone="warning"'}>${editable ? '' : esc(readonlyReason())}</div>${ficha.comentarioCoordinacion ? `<div class="docentes-note" data-tone="warning"><p><strong>Comentario de coordinación</strong></p><p>${esc(ficha.comentarioCoordinacion).replace(/\n/g, '<br>')}</p></div>` : ''}<div class="docentes-actions docentes-no-print"><button type="button" id="newFormBtn" class="btn btn-light">Ver otras muestras</button><button type="button" id="printFichaBtn" class="btn btn-light">Imprimir ficha / PDF</button></div><p class="docentes-print-only"><strong>Estado:</strong> ${esc(ficha.estado)}${ficha.updatedAt ? ` · Guardada: ${esc(dateText(ficha.updatedAt))}` : ''}</p></section>${state.token ? renderPrivateLink() : ''}<form id="teacherForm" novalidate><fieldset id="editableFields"><section class="docentes-card"><h2>1. Tu presencia y apoyo</h2><div class="docentes-grid"><label>¿Estarás presente en la muestra?<select name="asistencia">${['Por confirmar', 'Sí', 'No'].map(value => option(value, value, ficha.asistencia)).join('')}</select></label>${field('Disponibilidad y horario', 'disponibilidad', ficha.disponibilidad, { max: 1000, placeholder: 'Ej.: puedo acompañar de 3:00 a 5:00 p. m.' })}${field('Apoyo que se necesita si no estás', 'apoyo', ficha.apoyo, { textarea: true, placeholder: 'Quién puede acompañar y qué ayuda necesita el grupo.' })}${field('Indicaciones generales de tu grupo', 'indicacionesGenerales', ficha.indicacionesGenerales, { textarea: true, max: 4000, placeholder: 'Organización, llegada, vestuario o algo común a todas las presentaciones.' })}</div></section><section class="docentes-card"><div class="docentes-section-title"><h2>2. Estudiantes y presentaciones</h2><button type="button" id="addPresentationBtn" class="btn btn-light docentes-no-print">+ Agregar presentación</button></div><p class="docentes-help">Una presentación por estudiante o ensamble. Puedes proponer hasta 20. Coordinación revisará las inscripciones y los posibles duplicados antes de confirmarlas.</p><div id="presentationsList">${state.presentations.map(presentationHtml).join('')}</div><p id="presentationCount" class="docentes-help">${state.presentations.length} de 20 presentaciones</p></section></fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Enviar avisa que la ficha está lista para revisar; podrás corregirla mientras el plazo esté abierto y coordinación aún no la haya confirmado.</p></section></form>${footer}`;
+  app.innerHTML = `${brand}<section class="docentes-card">
+    <div class="docentes-event-summary"><div><h2>${esc(convocatoria.titulo)}</h2><p class="docentes-event-meta">${esc([dateOnly(convocatoria.fechaInicio), convocatoria.lugar].filter(Boolean).join(' · '))}</p><p><strong>Docente:</strong> ${esc(ficha.docenteNombre)}</p></div><span class="docentes-badge">${esc(ficha.estado || 'Borrador')}</span></div>
+    <p class="docentes-help">${deadline ? `${editable ? activeReopen ? 'Ficha reabierta' : 'Inscripciones abiertas' : 'Plazo de inscripción'} hasta ${esc(dateText(deadline))} (hora de Bogotá).` : 'Coordinación define el cierre de inscripciones.'}</p>
+    <div id="windowNotice"${editable ? ' class="hidden"' : ' class="docentes-note" data-tone="warning"'}>${editable ? '' : esc(readonlyReason())}</div>
+    ${ficha.comentarioCoordinacion ? `<div class="docentes-note" data-tone="warning"><p><strong>Comentario de coordinación</strong></p><p>${esc(ficha.comentarioCoordinacion).replace(/\n/g, '<br>')}</p></div>` : ''}
+    <div class="docentes-actions docentes-no-print"><button type="button" id="newFormBtn" class="btn btn-light">Ver otras muestras</button><button type="button" id="printFichaBtn" class="btn btn-light">Imprimir ficha / PDF</button></div>
+    <p class="docentes-print-only"><strong>Estado:</strong> ${esc(ficha.estado)}${ficha.updatedAt ? ` · Guardada: ${esc(dateText(ficha.updatedAt))}` : ''}</p>
+  </section>${state.token ? renderPrivateLink(showPrivateLink) : ''}
+  <form id="teacherForm" novalidate><fieldset id="editableFields">
+    <section class="docentes-card"><h2>1. Tu presencia</h2><div class="docentes-grid">
+      <label>¿Estarás presente en la muestra?<select name="asistencia">${['Por confirmar', 'Sí', 'No'].map(value => option(value, value, ficha.asistencia)).join('')}</select></label>
+      ${field('Disponibilidad y horario', 'disponibilidad', ficha.disponibilidad, { max: 1000, placeholder: 'Ej.: puedo acompañar de 3:00 a 5:00 p. m.' })}
+    </div><details class="docentes-disclosure" id="generalTeacherDetails"${ficha.asistencia === 'No' ? ' open' : ''}><summary>Indicaciones generales y apoyo</summary><div class="docentes-grid">
+      ${field('Apoyo que se necesita si no estás', 'apoyo', ficha.apoyo, { textarea: true, placeholder: 'Quién puede acompañar y qué ayuda necesita el grupo.' })}
+      ${field('Indicaciones generales de tu grupo', 'indicacionesGenerales', ficha.indicacionesGenerales, { textarea: true, max: 4000, placeholder: 'Llegada, vestuario u organización común a las presentaciones.' })}
+    </div></details></section>
+    <section class="docentes-card"><div class="docentes-section-title"><h2>2. Estudiantes y presentaciones</h2><button type="button" id="addPresentationBtn" class="btn btn-light docentes-no-print">+ Agregar otro</button></div>
+      <p class="docentes-help">Abre un estudiante para revisar su obra y duración. Puedes guardar por partes y completar sólo los detalles que necesite su presentación.</p>
+      ${rosterHtml()}
+      <div id="presentationsList">${state.presentations.map(presentationHtml).join('')}</div>
+      <p id="presentationCount" class="docentes-help">${state.presentations.length} de 20 presentaciones</p>
+    </section>
+  </fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Envía a coordinación cuando la ficha esté lista para revisar.</p></section></form>${footer}`;
   setEditable(editable);
   bindForm();
+  updateAttendanceDetails();
 }
 
-function renderPrivateLink() {
-  return `<section class="docentes-card docentes-link-card docentes-no-print"><h2>Conserva tu enlace privado</h2><p>Este enlace permite consultar y editar tu ficha mientras esté habilitada. <strong>Guárdalo y compártelo sólo con quien deba editarla.</strong> Elegir tu nombre nuevamente no recupera el acceso.</p><label>Enlace para volver a esta ficha<input id="privateLink" type="text" readonly value="${esc(fichaUrl(state.token))}" /></label><div class="docentes-actions"><button type="button" id="copyPrivateLink" class="btn btn-primary">Copiar enlace</button><button type="button" id="downloadPrivateLink" class="btn btn-light">Descargar enlace</button></div><p class="docentes-help" id="linkStatus" aria-live="polite">También lo recordamos en este navegador cuando el dispositivo lo permite.</p></section>`;
+function renderPrivateLink(open = false) {
+  return `<details class="docentes-card docentes-link-card docentes-no-print" id="privateLinkDetails"${open ? ' open' : ''}><summary>Tu enlace privado · Copiar o descargar</summary><div class="docentes-private-link-body"><p>Consérvalo para continuar desde otro dispositivo. <strong>Compártelo sólo con quien deba editar tu ficha.</strong></p><label>Enlace para volver a esta ficha<input id="privateLink" type="text" readonly value="${esc(fichaUrl(state.token))}" /></label><div class="docentes-actions"><button type="button" id="copyPrivateLink" class="btn btn-primary">Copiar enlace</button><button type="button" id="downloadPrivateLink" class="btn btn-light">Descargar enlace</button></div><p class="docentes-help" id="linkStatus" aria-live="polite">También lo recordamos en este navegador cuando el dispositivo lo permite.</p></div></details>`;
 }
 
 function setEditable(editable) {
   app.querySelectorAll('#editableFields input, #editableFields textarea').forEach(element => { element.readOnly = !editable || state.busy; });
   app.querySelectorAll('#editableFields select, #editableFields button, #saveDraftBtn, #submitFichaBtn').forEach(element => { element.disabled = !editable || state.busy; });
+  for (const id of ['rosterStudentChoice', 'openRosterStudent']) {
+    const control = document.getElementById(id);
+    if (control) control.disabled = state.busy;
+  }
   const addButton = document.getElementById('addPresentationBtn');
   if (addButton) addButton.disabled = !editable || state.busy || state.presentations.length >= 20;
 }
@@ -155,7 +415,9 @@ function setEditable(editable) {
 function readPresentations() {
   return [...app.querySelectorAll('[data-presentation]')].map(container => {
     const data = {};
-    container.querySelectorAll('[name]').forEach(element => { data[element.name] = ['duracionMin', 'cantidadObras'].includes(element.name) ? Number(element.value || (element.name === 'cantidadObras' ? 1 : 0)) : element.value.trim(); });
+    container.querySelectorAll('[name]').forEach(element => { if (!Object.hasOwn(blankPresentation(), element.name)) return; data[element.name] = ['duracionMin', 'cantidadObras'].includes(element.name) ? Number(element.value || (element.name === 'cantidadObras' ? 1 : 0)) : element.value.trim(); });
+    const sourceIndex = container.dataset.rosterIndex;
+    if (sourceIndex != null && /^\d+$/.test(sourceIndex) && rosterRows()[Number(sourceIndex)]) data._rosterIndex = Number(sourceIndex);
     if (data.tipo !== 'Ensamble') data.integrantesTexto = '';
     if (data.areaArtisticaId !== 'artes-plasticas') data.cantidadObras = 1;
     return data;
@@ -164,7 +426,7 @@ function readPresentations() {
 
 function readForm(estado) {
   const form = document.getElementById('teacherForm');
-  return { token: state.token || undefined, revision: state.revision, eventoId: state.ficha.eventoId, docenteId: state.ficha.docenteId, docenteNombre: state.ficha.docenteNombre, asistencia: form.elements.asistencia.value, disponibilidad: form.elements.disponibilidad.value.trim(), apoyo: form.elements.apoyo.value.trim(), indicacionesGenerales: form.elements.indicacionesGenerales.value.trim(), estado, presentaciones: readPresentations() };
+  return { token: state.token || undefined, revision: state.revision, eventoId: state.ficha.eventoId, docenteId: state.ficha.docenteId, docenteNombre: state.ficha.docenteNombre, asistencia: form.elements.asistencia.value, disponibilidad: form.elements.disponibilidad.value.trim(), apoyo: form.elements.apoyo.value.trim(), indicacionesGenerales: form.elements.indicacionesGenerales.value.trim(), estado, presentaciones: readPresentations().map(presentationPayload) };
 }
 
 function markDirty() {
@@ -178,14 +440,22 @@ function markDirty() {
 function bindForm() {
   const form = document.getElementById('teacherForm');
   form.addEventListener('input', event => {
+    if (!event.target.name) return;
     markDirty();
-    if (event.target.name === 'estudianteGrupo') event.target.closest('[data-presentation]').querySelector('[data-presentation-title]').textContent = event.target.value.trim() || 'Nueva presentación';
+    const presentation = event.target.closest('[data-presentation]');
+    if (presentation) updatePresentationSummary(presentation);
   });
   form.addEventListener('change', event => {
+    if (!event.target.name) return;
     markDirty();
+    if (event.target.name === 'asistencia') updateAttendanceDetails();
     if (event.target.name === 'tipo') event.target.closest('[data-presentation]').querySelector('[data-members-label]').classList.toggle('hidden', event.target.value !== 'Ensamble');
     if (event.target.name === 'areaArtisticaId') event.target.closest('[data-presentation]').querySelector('[data-artwork-label]').classList.toggle('hidden', event.target.value !== 'artes-plasticas');
+    const presentation = event.target.closest('[data-presentation]');
+    if (presentation) updatePresentationSummary(presentation);
   });
+  document.getElementById('openRosterStudent')?.addEventListener('click', openRosterPresentation);
+  document.getElementById('rosterStudentChoice')?.addEventListener('change', event => { if (event.target.value !== '') openRosterPresentation(); });
   form.addEventListener('submit', event => { event.preventDefault(); persist('Enviado'); });
   document.getElementById('saveDraftBtn')?.addEventListener('click', () => persist('Borrador'));
   document.getElementById('addPresentationBtn')?.addEventListener('click', () => {
@@ -237,8 +507,10 @@ function bindForm() {
 async function persist(estado) {
   if (state.busy || state.pendingRecovery || !state.ficha) return;
   if (!canEditFicha(state.ficha, state.convocatoria)) { setStatus(readonlyReason(), 'warning'); setEditable(false); return; }
+  const previousPresentations = readPresentations();
+  const previousRoster = rosterRows();
   const payload = readForm(estado);
-  try { validateFichaInput(payload); } catch (error) { setStatus(errorText(error), 'error'); return; }
+  try { validateFichaInput(payload); } catch (error) { setStatus(errorText(error), 'error'); revealValidationError(error); return; }
   state.busy = true;
   setEditable(false);
   document.getElementById('newFormBtn').disabled = true;
@@ -249,13 +521,13 @@ async function persist(estado) {
     state.token = saved.token;
     state.ficha = saved.ficha;
     state.revision = saved.revision ?? saved.ficha.revision;
-    state.presentations = saved.presentaciones;
+    state.presentations = assignRosterSources(saved.presentaciones, previousPresentations, previousRoster);
     state.dirty = false;
     state.pendingRecovery = false;
     state.busy = false;
     history.replaceState(null, '', `#ficha=${state.token}`);
     rememberLink();
-    renderForm(`${estado === 'Enviado' ? 'Enviado a coordinación' : 'Borrador guardado'} y confirmado por el servidor · ${dateText(saved.ficha.updatedAt || new Date())}.`);
+    renderForm(`${estado === 'Enviado' ? 'Enviado a coordinación' : 'Borrador guardado'} y confirmado por el servidor · ${dateText(saved.ficha.updatedAt || new Date())}.`, !payload.token);
     if (!payload.token) document.getElementById('privateLink')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (error) {
     state.busy = false;
@@ -286,7 +558,7 @@ function handleCommittedError(error) {
   history.replaceState(null, '', `#ficha=${state.token}`);
   rememberLink();
   if (!document.getElementById('privateLink')) {
-    document.getElementById('teacherForm').insertAdjacentHTML('beforebegin', renderPrivateLink());
+    document.getElementById('teacherForm').insertAdjacentHTML('beforebegin', renderPrivateLink(true));
     document.getElementById('copyPrivateLink').addEventListener('click', copyLink);
     document.getElementById('downloadPrivateLink').addEventListener('click', downloadLink);
   }
@@ -305,7 +577,7 @@ function handleCommittedError(error) {
       const loaded = await loadFicha(state.token);
       state.ficha = loaded.ficha;
       state.revision = loaded.ficha.revision;
-      state.presentations = loaded.presentaciones;
+      state.presentations = assignRosterSources(loaded.presentaciones);
       state.dirty = false;
       state.pendingRecovery = false;
       state.busy = false;
@@ -379,7 +651,7 @@ async function openToken(token) {
     if (!convocatoria) throw { code: 'docente/no-encontrada' };
     state.token = token;
     state.ficha = loaded.ficha;
-    state.presentations = loaded.presentaciones;
+    state.presentations = assignRosterSources(loaded.presentaciones);
     state.revision = loaded.ficha.revision;
     state.convocatoria = convocatoria;
     state.dirty = false;
