@@ -124,3 +124,67 @@ export function buildMomentPresentation(participant = {}, selectedWorks = []) {
     duracionMin: Number.isFinite(duration) && duration >= 0 ? duration : ''
   };
 }
+
+/**
+ * Review saved programme snapshots without changing their hours or minutes.
+ * The caller supplies active ensemble links to avoid a circular model import.
+ * Participant links use identifiers only; matching names never establish one.
+ */
+export function getProgrammeEnsembleWarnings(moments = [], participants = [], { getGroupsForWork = () => [], isEnsemble = row => Boolean(row?.esEnsamble || row?.tipo === 'Ensamble' || Array.isArray(row?.integrantes) && row.integrantes.length) } = {}) {
+  const list = value => Array.isArray(value) ? value.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
+  const id = value => typeof value === 'string' ? value.trim() : '';
+  const eventId = row => id(row?.eventoId || row?.eventId);
+  const sourceId = row => id(row?.id || row?.participanteId);
+  const active = row => normalizarNombre(row?.estado) !== 'cancelado';
+  const warnings = new Map();
+  const byId = new Map();
+  const byEventAndId = new Map();
+  const occurrences = new Map();
+  const addTo = (map, key, value) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(value);
+  };
+  const warn = (moment, message) => {
+    const key = id(moment.id);
+    if (!key) return;
+    if (!warnings.has(key)) warnings.set(key, []);
+    if (!warnings.get(key).includes(message)) warnings.get(key).push(message);
+  };
+  for (const participant of list(participants)) {
+    const key = sourceId(participant);
+    if (!key) continue;
+    addTo(byId, key, participant);
+    addTo(byEventAndId, JSON.stringify([eventId(participant), key]), participant);
+  }
+  for (const moment of list(moments)) {
+    const key = id(moment.participanteId);
+    if (!id(moment.id) || !key) continue;
+    const scope = eventId(moment);
+    const sources = scope ? byEventAndId.get(JSON.stringify([scope, key])) : byId.get(key);
+    if (sources?.length !== 1) continue;
+    const source = sources[0];
+    const savedWorks = getParticipantWorks(moment);
+    const works = savedWorks.length ? savedWorks : getParticipantWorks(source);
+    for (const work of works) {
+      const groups = isEnsemble(source) ? active(source) ? [source] : [] : list(getGroupsForWork(source, work)).filter(active);
+      if (!isEnsemble(source) && groups.length) {
+        const names = [...new Set(groups.map(group => originalText(group.estudianteGrupo) || originalText(group.nombrePresentacion) || 'un ensamble'))];
+        warn(moment, `«${work}» se interpreta en ${names.join(' / ')}. Revisa este momento individual para no sumar dos veces su tiempo.`);
+      }
+      for (const group of groups) {
+        const groupId = sourceId(group);
+        if (!groupId) continue;
+        const occurrenceKey = JSON.stringify([eventId(group) || eventId(source), groupId, normalizarNombre(work)]);
+        if (!occurrences.has(occurrenceKey)) occurrences.set(occurrenceKey, { work, group, moments: new Map() });
+        occurrences.get(occurrenceKey).moments.set(id(moment.id), moment);
+      }
+    }
+  }
+  for (const { work, group, moments: repeated } of occurrences.values()) {
+    if (repeated.size < 2) continue;
+    const name = originalText(group.estudianteGrupo) || originalText(group.nombrePresentacion) || 'el ensamble';
+    const message = `«${work}» de ${name} aparece en ${repeated.size} momentos del programa. Revisa los minutos para contar esta interpretación una sola vez.`;
+    for (const moment of repeated.values()) warn(moment, message);
+  }
+  return warnings;
+}

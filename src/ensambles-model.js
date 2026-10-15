@@ -1,5 +1,5 @@
 import { normalizarNombre } from './docentes-model.js';
-import { getParticipantWorks } from './programacion-model.js?v=20261013-presentaciones-inscritas';
+import { getParticipantWorks } from './programacion-model.js?v=20261015-duracion-ensambles';
 
 const rows = value => Array.isArray(value) ? value : [];
 const text = value => typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
@@ -146,16 +146,64 @@ export function getIndividualSoloWorks(participant, participantsOrIndex = []) {
   return (index.worksByParticipant.get(source) || getParticipantWorks(participant)).filter(work => !shared?.has(normalizarNombre(work)));
 }
 
+function recordedMinutes(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const minutes = typeof value === 'number' ? value : Number(value.trim().replace(',', '.'));
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
+}
+
+const normalizedWorkKeys = works => [...new Set(works.map(normalizarNombre))].sort();
+
+/**
+ * Shared works do not imply a known division of a registration's old total.
+ * Explicit solo minutes are valid only for the exact current repertoire and
+ * recorded total, so edits through another workflow invalidate the review.
+ */
+export function getParticipantDuration(participant = {}, participantsOrIndex = []) {
+  const index = participationIndex(participantsOrIndex);
+  const source = indexedParticipant(participant, index) || {};
+  const ownWorks = index.worksByParticipant.get(source) || getParticipantWorks(participant);
+  const soloWorks = getIndividualSoloWorks(source, index);
+  const sharedByKey = new Map();
+  const groups = index.activeGroupsByParticipant.get(source) || [];
+  for (const group of groups) {
+    for (const work of index.worksByParticipant.get(group) || []) {
+      const key = normalizarNombre(work);
+      if (!sharedByKey.has(key)) sharedByKey.set(key, work);
+    }
+  }
+  const sharedWorks = [...sharedByKey.values()];
+  // Exhibition pieces do not require stage minutes.
+  const exhibition = ['artes-plasticas', 'artes plasticas'].includes(normalizarNombre(source.areaArtisticaId || source.areaArtisticaNombre || source.area));
+  const rawMinutes = recordedMinutes(source.duracionMin) ?? (exhibition ? 0 : null);
+  const confirmationKey = JSON.stringify([
+    'solo-duration-v1', normalizedWorkKeys(ownWorks),
+    normalizedWorkKeys(sharedWorks), normalizedWorkKeys(soloWorks),
+    rawMinutes === null ? ['unrecorded', text(source.duracionMin)] : rawMinutes
+  ]);
+  const result = { minutes: rawMinutes, needsReview: rawMinutes === null, mode: 'solo', confirmationKey, soloWorks, sharedWorks };
+  if (ensemble(source)) return { ...result, mode: 'ensemble' };
+  if (groups.length && !soloWorks.length) return { ...result, minutes: 0, needsReview: false, mode: 'ensemble-only' };
+  const sharesOriginalWork = ownWorks.some(work => sharedByKey.has(normalizarNombre(work)));
+  if (!sharesOriginalWork || !soloWorks.length) return result;
+  const soloMinutes = recordedMinutes(source.duracionSolistaMin);
+  const confirmed = source.duracionSolistaReferencia === confirmationKey && soloMinutes !== null;
+  return { ...result, minutes: confirmed ? soloMinutes : null, needsReview: !confirmed, mode: confirmed ? 'mixed-confirmed' : 'mixed-review' };
+}
+
 /** One group is one presentation; a mixed registration retains its remaining solo works. */
 export function buildPresentationCatalogue(participantsOrIndex = []) {
   const index = participationIndex(participantsOrIndex);
   if (index.catalogue) return index.catalogue;
   index.catalogue = index.participants.flatMap(row => {
-    if (ensemble(row)) return [{ ...row }];
-    const soloWorks = getIndividualSoloWorks(row, index);
+    const duration = getParticipantDuration(row, index);
+    const effectiveDuration = { duracionMin: duration.minutes, duracionPendiente: duration.needsReview };
+    if (ensemble(row)) return [{ ...row, ...effectiveDuration }];
+    const soloWorks = duration.soloWorks;
     const hasGroups = Boolean(index.activeGroupsByParticipant.get(row)?.length);
     if (hasGroups && !soloWorks.length) return [];
-    return [{ ...row, repertorios: soloWorks, repertorio: soloWorks.join(' / ') }];
+    return [{ ...row, ...effectiveDuration, repertorios: soloWorks, repertorio: soloWorks.join(' / ') }];
   });
   return index.catalogue;
 }

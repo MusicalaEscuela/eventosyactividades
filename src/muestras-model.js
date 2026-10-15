@@ -83,10 +83,15 @@ export function artCapacityRows(c,rows) {
   const config=normalizeConfig(c), cap=capacity(config);
   return activeArtAreas(config).map(area=>{
     const areaRows=rows.filter(row=>artAreaForRow(config,row)===area.id);
-    const totalDuracion=areaRows.reduce((sum,row)=>sum+Number(row.duracionMin||modalityForRow(config,row)?.duracionSugerida||0),0);
+    const duracionesPendientes=areaRows.filter(row=>row.duracionPendiente===true).length;
+    const totalDuracion=areaRows.reduce((sum,row)=>{
+      if(row.duracionPendiente===true)return sum;
+      const explicitZero=row.duracionMin===0||(typeof row.duracionMin==='string'&&row.duracionMin.trim()!==''&&Number(row.duracionMin.replace(',','.'))===0);
+      return explicitZero?sum:sum+Number(row.duracionMin||modalityForRow(config,row)?.duracionSugerida||0);
+    },0);
     const expuestas=areaRows.filter(row=>row.seleccionadaExposicion===true||row.expuesta===true).length;
     const cantidad=area.tipoMedicion==='obrasExpuestas'?areaRows.reduce((n,row)=>n+Math.max(1,Number(row.cantidadObras||1)),0):areaRows.length;
-    return {...area,rows:areaRows,cantidad,totalDuracion,expuestas,capacidad:area.id==='musica'?cap:null};
+    return {...area,rows:areaRows,cantidad,totalDuracion,duracionesPendientes,expuestas,capacidad:area.id==='musica'?cap:null};
   });
 }
 export const iso = d => d.toISOString().slice(0,10);

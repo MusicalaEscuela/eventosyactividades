@@ -1,11 +1,11 @@
-import { createAnnualSystem } from "./muestras-anual.js?v=20261014-ensambles-inscritos";
+import { createAnnualSystem } from "./muestras-anual.js?v=20261015-duracion-ensambles";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, buildPresentationCatalogue } from "./ensambles-model.js?v=20261014-ensambles-inscritos";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation } from "./programacion-model.js?v=20261013-presentaciones-inscritas";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261015-duracion-ensambles";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261015-duracion-ensambles";
 import {
   auth,
   provider,
@@ -956,6 +956,7 @@ function resumenRepertorio() {
   const repetidas = [...conteo.entries()].filter(([, usos]) => usos.length > 1);
   const sinObra = presentaciones.filter(row => !getParticipantWorks(row).length).length;
   const minutos = presentaciones.reduce((total, row) => total + (Number(row.duracionMin) || 0), 0);
+  const tiemposPendientes = presentaciones.filter(row => row.duracionPendiente).length;
   const ensambles = presentaciones.filter(participantIsEnsemble).length;
   const invitacionesEnviadas = filas.filter(row => ["Enviada", "Aceptada", "Rechazada"].includes(row.invitacionEstado)).length;
   const invitacionesAceptadas = filas.filter(row => row.invitacionEstado === "Aceptada").length;
@@ -969,7 +970,7 @@ function resumenRepertorio() {
     `<span class="badge info">${invitacionesEnviadas} invitación${invitacionesEnviadas === 1 ? "" : "es"} enviada${invitacionesEnviadas === 1 ? "" : "s"}</span>`,
     `<span class="badge success">${invitacionesAceptadas} aceptada${invitacionesAceptadas === 1 ? "" : "s"}</span>`,
     `<span class="badge neutral">${totalInvitados} invitado${totalInvitados === 1 ? "" : "s"}</span>`,
-    minutos ? `<span class="badge neutral">≈ ${minutos} min</span>` : "",
+    tiemposPendientes ? `<span class="badge warning">Subtotal conocido: ${minutos} min · ${tiemposPendientes} duración${tiemposPendientes === 1 ? '' : 'es'} por revisar</span>` : minutos ? `<span class="badge neutral">≈ ${minutos} min</span>` : "",
     sinObra ? `<span class="badge warning">${sinObra} sin obra asignada</span>` : "",
     repetidas.length
       ? `<span class="badge danger">${repetidas.length} obra${repetidas.length === 1 ? "" : "s"} repetida${repetidas.length === 1 ? "" : "s"}</span>`
@@ -982,8 +983,7 @@ function resumenRepertorio() {
         .join(" · ")}</p>`
     : "";
 
-  const mixed = filas.some(row => !participantIsEnsemble(row) && participantEnsembles(row).some(group => !isCancelledParticipant(group)) && participantSoloWorks(row).length);
-  return `<div class="resumen-repertorio">${chips}${detalle}${mixed ? '<p class="field-hint">Si un estudiante también presenta obras solistas, los minutos de su ficha deben corresponder sólo a esas obras. El tiempo del ensamble se registra en la presentación compartida.</p>' : ''}</div>`;
+  return `<div class="resumen-repertorio">${chips}${detalle}${tiemposPendientes ? '<p class="field-hint">Revisa las duraciones pendientes en Participantes. Si una ficha mezcla obras solistas y compartidas, confirma sólo los minutos solistas; el tiempo del ensamble se cuenta una vez.</p>' : ''}</div>`;
 }
 
 function ensembleIndex() {
@@ -1000,8 +1000,16 @@ function participantEnsembles(row) { return getParticipantEnsembles(eventPartici
 function participantWorks(row) { return getEffectiveParticipantWorks(eventParticipant(row), ensembleIndex()); }
 function participantSoloWorks(row) { return getIndividualSoloWorks(eventParticipant(row), ensembleIndex()); }
 function participantWorkEnsembles(row, work) { return getEnsemblesForParticipantWork(eventParticipant(row), work, ensembleIndex()); }
+function participantDuration(row) { return getParticipantDuration(eventParticipant(row), ensembleIndex()); }
 function isCancelledParticipant(row) { return normalizarNombre(row?.estado) === 'cancelado'; }
 function eventPresentations() { return buildPresentationCatalogue(ensembleIndex()).filter(row => !isCancelledParticipant(row)); }
+
+function participantDurationCell(row) {
+  const duration = participantDuration(row);
+  if (duration.mode === 'ensemble-only') return '<span class="field-hint">Tiempo incluido en el ensamble</span>';
+  if (duration.needsReview) return `<span class="badge warning">${duration.mode === 'mixed-review' ? 'Minutos solistas por revisar' : 'Duración por definir'}</span>`;
+  return `${escapeHtml(duration.minutes)} min${duration.mode === 'mixed-confirmed' ? ' solistas' : ''}`;
+}
 
 function ensembleMembersText(group) {
   return normalizeEnsembleMembers(group.integrantes).map(member => `${member.nombre}${member.instrumento ? ` (${member.instrumento})` : ''}`).join(' · ');
@@ -1499,7 +1507,7 @@ function renderTabContent(tab) {
       row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
-      !participantIsEnsemble(row) && participantEnsembles(row).some(group => !isCancelledParticipant(group)) && !participantSoloWorks(row).length ? '<span class="field-hint">Tiempo incluido en el ensamble</span>' : row.duracionMin ? `${escapeHtml(row.duracionMin)} min` : "",
+      participantDurationCell(row),
       badge(row.estado),
       `<span class="badge ${row.invitacionEstado === "Aceptada" ? "success" : row.invitacionEstado === "Enviada" ? "info" : row.invitacionEstado === "Rechazada" ? "danger" : "neutral"}">${escapeHtml(row.invitacionEstado || "Pendiente")}</span>${row.invitacionFechaEnvio ? `<div class="muted" style="font-size:.78rem">${normalizeDate(row.invitacionFechaEnvio)}</div>` : ""}`,
       row.tieneInvitados ? `${escapeHtml(row.invitadosCantidad || 0)} invitado${Number(row.invitadosCantidad) === 1 ? "" : "s"}` : "Sin invitados",
@@ -1523,12 +1531,13 @@ function renderTabContent(tab) {
 
   if (tab === "programacion") {
     const next = getNextMoment(rows);
+    const warnings = getProgrammeEnsembleWarnings(rows.map(eventParticipant), state.childData.muestras.map(eventParticipant), { getGroupsForWork: participantWorkEnsembles, isEnsemble: participantIsEnsemble });
     const nextHint = next.hora
       ? `<strong>Siguiente hora: ${escapeHtml(momentTimeLabel(next))}</strong><span>Se completa al agregar un momento.</span>`
       : `<span>${escapeHtml(next.reason)}</span>`;
     return `<div class="progress-meta" role="status">${nextHint}</div>` + table(["Hora", "Momento / actividad", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
       momentTimeCell(row),
-      momentTitle(row), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(row.duracionMin)} min` : "",
+      momentTitle(row) + (warnings.get(row.id) || []).map(message => `<p class="field-hint hint-alerta">${escapeHtml(message)}</p>`).join(''), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(row.duracionMin)} min` : "",
       escapeHtml(row.montaje || ""), rowActions(tab, row.id)
     ]));
   }
@@ -1781,6 +1790,43 @@ function openChildDialog(tab, row = null) {
   const originalMemberKeys = new Set((isEdit && participantIsEnsemble(row) ? ensembleMembers : []).map(member => JSON.stringify([member.participanteId || '', member.studentId || '', normalizarNombre(member.nombre)])));
   let childSaving = false;
   let refreshWorkHints = () => {};
+  let refreshDurationContext = () => {};
+
+  const draftDuration = (data = {}) => {
+    const draft = eventParticipant({ ...row, ...data, id: row?.id || '__new_participant__' });
+    const participants = [...state.childData.muestras.filter(source => source.id !== draft.id).map(eventParticipant), draft];
+    return getParticipantDuration(draft, participants);
+  };
+
+  if (tab === 'muestras') {
+    const holder = modalForm.querySelector('#participantDurationContext');
+    let previousKey = '';
+    refreshDurationContext = () => {
+      const raw = modalForm.querySelector('#areaContext [name="duracionMin"]');
+      if (!raw) { holder.innerHTML = ''; return; }
+      const duration = draftDuration({
+        repertorios: [...modalForm.querySelectorAll('[name="repertorioItem"]')].map(input => input.value.trim()).filter(Boolean), repertorio: '',
+        duracionMin: raw.value,
+        areaArtisticaId: modalForm.querySelector('[name="areaArtisticaId"]')?.value || row?.areaArtisticaId || '',
+        studentId: modalForm.querySelector('[name="studentId"]')?.value || '',
+        esEnsamble: modalForm.querySelector('[name="tipoParticipacion"]')?.value === 'Ensamble',
+        tipo: modalForm.querySelector('[name="tipoParticipacion"]')?.value || 'Individual'
+      });
+      const mixed = duration.mode.startsWith('mixed-');
+      raw.closest('label').classList.toggle('hidden', mixed || duration.mode === 'ensemble-only');
+      raw.readOnly = mixed || duration.mode === 'ensemble-only';
+      if (mixed) {
+        const current = holder.querySelector('[name="duracionSolistaMin"]');
+        if (current && previousKey === duration.confirmationKey) return;
+        holder.innerHTML = `<label>Minutos de las obras solistas<input type="number" min="0" step="any" name="duracionSolistaMin" value="${duration.mode === 'mixed-confirmed' ? escapeHtml(duration.minutes) : ''}" placeholder="Por revisar" /><span class="field-hint">Sólo para: ${duration.soloWorks.map(escapeHtml).join(' · ')}. El tiempo compartido se cuenta en el ensamble. Si dejas este campo vacío, el total mostrará una duración pendiente.</span></label>`;
+        holder.dataset.durationReference = duration.confirmationKey;
+      } else {
+        holder.innerHTML = duration.mode === 'ensemble-only' ? '<p class="field-hint">El tiempo de estas obras ya está incluido en el ensamble. Esta ficha conserva el seguimiento individual.</p>' : duration.sharedWorks.length ? '<p class="field-hint">Esta duración corresponde sólo a las obras solistas. Las obras compartidas se cuentan en el ensamble.</p>' : '';
+      }
+      previousKey = duration.confirmationKey;
+    };
+    modalForm.querySelector('#areaContext').addEventListener('input', event => { if (event.target.name === 'duracionMin') refreshDurationContext(); });
+  }
 
   if (tab === 'muestras') {
     const type = modalForm.querySelector('[name="tipoParticipacion"]');
@@ -1909,7 +1955,7 @@ function openChildDialog(tab, row = null) {
       const count = selectedWorks().length;
       const unavailable = !eventPresentations().some(source => source.id === participant.value);
       const countText = total ? `${count} de ${total} obra${total === 1 ? '' : 's'} seleccionada${count === 1 ? '' : 's'}.` : 'Este participante aún no tiene obras registradas; puedes completarlas en Participantes.';
-      const durationText = total && count < total ? ' La duración registrada corresponde a la presentación completa. Ajusta los minutos si presentarás sólo parte del repertorio.' : ' Puedes ajustar la duración y el encargado.';
+      const durationText = momentPresentation.duracionPendiente ? ' La duración de la ficha está pendiente de revisión. Revisa los minutos de este momento antes de guardarlo.' : total && count < total ? ' La duración registrada corresponde a la presentación completa. Ajusta los minutos si presentarás sólo parte del repertorio.' : ' Puedes ajustar la duración y el encargado.';
       presentationHint.textContent = countText + durationText + (unavailable ? ' Se conserva este momento guardado. Si ahora corresponde a un ensamble, elige su presentación compartida para actualizarlo.' : '');
     };
     const fillFromParticipant = (input, value, generic = '') => {
@@ -1926,6 +1972,7 @@ function openChildDialog(tab, row = null) {
       fillFromParticipant(item, defaults.item, getMomentPreset('presentacion').label);
       fillFromParticipant(owner, defaults.encargado);
       fillFromParticipant(duration, defaults.duracionMin);
+      if (momentPresentation.duracionPendiente) { duration.value = ''; autoValues.set(duration, ''); }
       updateEnd();
     }
     const loadPresentation = (initial = false) => {
@@ -1939,11 +1986,12 @@ function openChildDialog(tab, row = null) {
         ...(source || {}), id,
         estudianteGrupo: keepSaved ? row.estudianteGrupo || source?.estudianteGrupo || 'Participante' : source.estudianteGrupo || source.nombrePresentacion || 'Participante',
         repertorios: works, repertorio: '',
-        docente: source?.docente || (keepSaved ? row.encargado || '' : ''), duracionMin: source?.duracionMin ?? (keepSaved ? row.duracionMin ?? '' : '')
+        docente: source?.docente || (keepSaved ? row.encargado || '' : ''), duracionMin: source ? source.duracionMin ?? '' : keepSaved ? row.duracionMin ?? '' : '', duracionPendiente: Boolean(source?.duracionPendiente)
       } : null;
       const chosen = new Set((keepSaved ? storedWorks : works).map(normalizarNombre));
       worksBox.innerHTML = works.length ? `<p class="field-hint">Obras / actividades que presentará</p><div class="check-grid">${works.map(work => `<label class="check-card"><input type="checkbox" name="obraPresentacion" value="${escapeHtml(work)}" ${chosen.has(normalizarNombre(work)) ? 'checked' : ''} /><span>${escapeHtml(work)}</span></label>`).join('')}</div>` : detachedSnapshot && !momentSelectionChanged ? `<p class="field-hint">${escapeHtml(row.estudianteGrupo || 'Participante guardado')}</p>${getParticipantWorks(row).map(work => `<div>${escapeHtml(work)}</div>`).join('')}` : '';
       if (!initial && type.value === 'presentacion') applyPresentationDefaults();
+      if (initial && !isEdit && type.value === 'presentacion' && momentPresentation?.duracionPendiente) { duration.value = ''; updateEnd(); }
       updatePresentationHint();
     };
     participant.addEventListener('change', () => { momentSelectionChanged = true; loadPresentation(); });
@@ -1961,6 +2009,7 @@ function openChildDialog(tab, row = null) {
     areaArtisticaSelect.addEventListener("change", () => {
       const context = modalForm.querySelector("#areaContext");
       if (context) context.innerHTML = annualSystem.participantContext({}, areaArtisticaSelect.value);
+      refreshDurationContext();
     });
   }
 
@@ -1970,6 +2019,7 @@ function openChildDialog(tab, row = null) {
   if (obrasLista) {
     // Aviso de obra repetida: en este evento o ya presentada por el estudiante.
     const avisarObras = () => {
+      refreshDurationContext();
       const caja = modalForm.querySelector("#avisoRepertorio");
       if (!caja) return;
       const obras = [...obrasLista.querySelectorAll('[name="repertorioItem"]')].map(i => i.value.trim()).filter(Boolean);
@@ -2119,6 +2169,7 @@ function openChildDialog(tab, row = null) {
         const previousLink = isEdit && row.participanteId === participantId;
         if (!momentPresentation || momentPresentation.id !== participantId || !previousLink && !eventPresentations().some(participant => participant.id === participantId)) { toast('Esta presentación cambió. Elige el estudiante o ensamble que corresponde ahora.'); return; }
         const works = formData.getAll('obraPresentacion');
+        if (momentPresentation.duracionPendiente && (data.duracionMin === '' || !Number.isFinite(Number(data.duracionMin)) || Number(data.duracionMin) < 0)) { toast('Indica la duración de este momento; los minutos solistas aún están por revisar.'); return; }
         if (getParticipantWorks(momentPresentation).length && !works.length && !(previousLink && !getParticipantWorks(row).length)) { toast('Elige al menos una obra que presentará.'); return; }
         const presentation = buildMomentPresentation(momentPresentation, works);
         data.participanteId = presentation.participanteId;
@@ -2164,6 +2215,18 @@ function openChildDialog(tab, row = null) {
       if (data.esEnsamble) {
         const duplicate = state.childData.muestras.find(participant => participant.id !== row?.id && participantIsEnsemble(participant) && ensembleSignature(participant) === ensembleSignature(data));
         if (duplicate) { toast('Ya existe un ensamble con esas obras e integrantes. Abre su inscripción para editarla.'); return; }
+      }
+      const duration = draftDuration(data);
+      const soloValue = formData.get('duracionSolistaMin');
+      if (duration.mode.startsWith('mixed-') && soloValue !== null && String(soloValue).trim() !== '') {
+        if (modalForm.querySelector('#participantDurationContext').dataset.durationReference !== duration.confirmationKey) { refreshDurationContext(); toast('Las obras del ensamble cambiaron. Revisa y confirma nuevamente los minutos solistas.'); return; }
+        const minutes = Number(String(soloValue).replace(',', '.'));
+        if (!Number.isFinite(minutes) || minutes < 0) { toast('Indica minutos solistas válidos.'); return; }
+        data.duracionSolistaMin = minutes;
+        data.duracionSolistaReferencia = duration.confirmationKey;
+      } else {
+        data.duracionSolistaMin = null;
+        data.duracionSolistaReferencia = '';
       }
     }
     data.updatedAt = serverTimestamp();
@@ -2338,6 +2401,7 @@ function childForm(tab, row = {}) {
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
         </label>
         <div class="wide" id="areaContext">${annualSystem.participantContext(row)}</div>
+        <div class="wide" id="participantDurationContext"></div>
         <label>Género<select name="genero">${opcionesConSeleccion(opcionesGeneros, generoActual)}</select></label>
         <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
         <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, row.prioridad || "Media")}</select></label>
