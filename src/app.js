@@ -1,4 +1,4 @@
-import { getWorkMinutes, workMinutes, workDurationReference } from './obras-duracion.js?v=20261016-tiempo-por-obra';
+import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
@@ -28,7 +28,8 @@ import {
   query,
   orderBy,
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  runTransaction
 } from "./firebase-config.js?v=20261011-docentes";
 
 import { BANCO_REPERTORIO, GENEROS, normalizeGenre, findRepertorio } from "./repertorio.js";
@@ -1798,6 +1799,7 @@ function openChildDialog(tab, row = null) {
   let ensembleMembers = normalizeEnsembleMembers(row?.integrantes || []);
   const originalMemberKeys = new Set((isEdit && participantIsEnsemble(row) ? ensembleMembers : []).map(member => JSON.stringify([member.participanteId || '', member.studentId || '', normalizarNombre(member.nombre)])));
   let childSaving = false;
+  const sharedDurationChanges = new Map();
   let refreshWorkHints = () => {};
   let refreshDurationContext = () => {};
 
@@ -1821,13 +1823,21 @@ function openChildDialog(tab, row = null) {
         const groups = !group && row?.id ? participantWorkEnsembles(row, work) : [];
         const shared = groups.length > 0;
         if (shared) {
-          if (!input.disabled) input.dataset.ownMinutes = input.value;
-          const values = groups.map(source => getWorkMinutes(source, work));
-          input.value = values.length === 1 && values[0] !== null ? values[0] : '';
-          input.disabled = true;
-          hint.textContent = 'Tiempo compartido. Se edita en la inscripción del ensamble.';
+          const key = JSON.stringify([groups.map(source => source.id).sort(), normalizarNombre(work)]);
+          if (input.dataset.sharedKey !== key) {
+            if (!input.dataset.sharedKey) input.dataset.ownMinutes = input.value;
+            const minutes = groups.length === 1 ? getWorkMinutes(groups[0], work) : null;
+            input.value = minutes ?? '';
+            input.dataset.sharedInitial = input.value;
+            input.dataset.sharedKey = key;
+          }
+          input.dataset.sharedGroup = groups.length === 1 ? groups[0].id : '';
+          input.disabled = groups.length !== 1;
+          hint.textContent = groups.length === 1 ? `Tiempo compartido de ${groups[0].estudianteGrupo || 'este ensamble'}. Al guardar, se actualiza para todos sus integrantes y se cuenta una sola vez.` : 'Esta obra está vinculada a varios ensambles. Edita el tiempo desde la inscripción del ensamble correspondiente.';
         } else {
-          if (input.disabled) input.value = input.dataset.ownMinutes || '';
+          if (input.dataset.sharedKey) input.value = input.dataset.ownMinutes || '';
+          delete input.dataset.sharedKey;
+          delete input.dataset.sharedGroup;
           input.disabled = false;
           hint.textContent = '';
           if (work) entries.push({ obra: work, minutos: workMinutes(input.value) });
@@ -1838,7 +1848,8 @@ function openChildDialog(tab, row = null) {
       const known = entries.reduce((sum, entry) => sum + (entry.minutos ?? 0), 0);
       const pending = entries.filter(entry => entry.minutos === null).length;
       const old = row?.duracionAnteriorMin ?? (!row?.duracionPorObra ? row?.duracionMin : null);
-      holder.innerHTML = exhibition ? '' : `<p class="field-hint" role="status">${pending ? `Subtotal conocido: ${known} min · ${pending} obra(s) por completar.` : `Total calculado: ${known} min.`} ${group ? 'Este tiempo se cuenta una sola vez para todo el ensamble.' : 'Las obras de ensamble se cuentan en su presentación compartida.'}</p>${old != null && String(old) !== '' && pending ? `<p class="field-hint">Duración anterior: ${escapeHtml(old)} min. Reparte los minutos entre las obras; no se distribuyen automáticamente.</p>` : ''}`;
+      const onlyShared = !entries.length && Boolean(modalForm.querySelector('[data-shared-key]'));
+      holder.innerHTML = exhibition ? '' : `<p class="field-hint" role="status">${onlyShared ? 'El tiempo de estas obras se cuenta una sola vez en el ensamble.' : pending ? `Subtotal conocido: ${known} min · ${pending} obra(s) por completar.` : `Total calculado: ${known} min.`} ${onlyShared ? '' : group ? 'Este tiempo se cuenta una sola vez para todo el ensamble.' : 'Las obras de ensamble se cuentan en su presentación compartida.'}</p>${old != null && String(old) !== '' && pending ? `<p class="field-hint">Duración anterior: ${escapeHtml(old)} min. Reparte los minutos entre las obras; no se distribuyen automáticamente.</p>` : ''}`;
     };
   }
 
@@ -2240,8 +2251,16 @@ function openChildDialog(tab, row = null) {
       data.duracionPorObra = true;
       data.duracionesObras = [...modalForm.querySelectorAll('.obra-item')].map(item => ({
         obra: item.querySelector('[name="repertorioItem"]').value.trim(),
-        minutos: item.querySelector('[name="duracionObra"]').disabled ? null : workMinutes(item.querySelector('[name="duracionObra"]').value)
+        minutos: item.querySelector('[name="duracionObra"]').dataset.sharedKey ? null : workMinutes(item.querySelector('[name="duracionObra"]').value)
       })).filter(entry => entry.obra);
+      sharedDurationChanges.clear();
+      modalForm.querySelectorAll('.obra-item').forEach(item => {
+        const input = item.querySelector('[name="duracionObra"]');
+        if (!input.dataset.sharedGroup || input.value === input.dataset.sharedInitial) return;
+        const groupId = input.dataset.sharedGroup;
+        if (!sharedDurationChanges.has(groupId)) sharedDurationChanges.set(groupId, []);
+        sharedDurationChanges.get(groupId).push({ obra: item.querySelector('[name="repertorioItem"]').value.trim(), minutos: workMinutes(input.value), anterior: workMinutes(input.dataset.sharedInitial) });
+      });
       const duration = draftDuration(data);
       if (row && !row.duracionPorObra && row.duracionMin != null) data.duracionAnteriorMin = row.duracionMin;
       // Keep the old aggregate for legacy teacher forms; accounting uses the work map.
@@ -2262,7 +2281,37 @@ function openChildDialog(tab, row = null) {
       const path = collection(db, COLLECTION, state.selectedEventId, tab);
       const createsGroup = tab === 'muestras' && isEdit && !participantIsEnsemble(row) && data.esEnsamble;
       if (isEdit && !createsGroup) {
-        await updateDoc(doc(db, COLLECTION, state.selectedEventId, tab, row.id), data);
+        const participantRef = doc(db, COLLECTION, state.selectedEventId, tab, row.id);
+        if (sharedDurationChanges.size) {
+          await runTransaction(db, async transaction => {
+            const participantSnapshot = await transaction.get(participantRef);
+            const groupSnapshots = [];
+            for (const [id, changes] of sharedDurationChanges) {
+              const ref = doc(db, COLLECTION, state.selectedEventId, 'muestras', id);
+              groupSnapshots.push({ id, ref, changes, snapshot: await transaction.get(ref) });
+            }
+            const conflict = () => Object.assign(new Error('El ensamble cambió mientras editabas. Cierra y abre la ficha para revisar los tiempos actuales.'), { durationConflict: true });
+            if (!participantSnapshot.exists()) throw conflict();
+            const participant = eventParticipant({ ...participantSnapshot.data(), id: row.id });
+            const groups = groupSnapshots.filter(item => item.snapshot.exists()).map(item => eventParticipant({ ...item.snapshot.data(), id: item.id }));
+            const currentIndex = buildEnsembleParticipationIndex([participant, ...groups]);
+            for (const item of groupSnapshots) {
+              const group = groups.find(source => source.id === item.id);
+              if (!group || !participantIsEnsemble(group)) throw conflict();
+              for (const change of item.changes) {
+                if (!getEnsemblesForParticipantWork(participant, change.obra, currentIndex).some(source => source.id === group.id) || getWorkMinutes(group, change.obra) !== change.anterior) throw conflict();
+              }
+              const duracionesObras = getParticipantWorks(group).map(obra => {
+                const change = item.changes.find(entry => normalizarNombre(entry.obra) === normalizarNombre(obra));
+                return { obra, minutos: change ? change.minutos : getWorkMinutes(group, obra) };
+              });
+              const draft = { ...group, duracionPorObra: true, duracionObrasReferencia: '', duracionesObras };
+              const duracionMin = workDurationSummary(draft, getParticipantWorks(group)).minutes;
+              transaction.update(item.ref, { duracionPorObra: true, duracionesObras, duracionMin, duracionObrasReferencia: workDurationReference({ ...draft, duracionMin }), ...(!group.duracionPorObra && group.duracionMin != null ? { duracionAnteriorMin: group.duracionMin } : {}), updatedAt: serverTimestamp(), updatedBy: state.user.email });
+            }
+            transaction.update(participantRef, data);
+          });
+        } else await updateDoc(participantRef, data);
         toast("Registro actualizado.");
       } else {
         data.createdAt = serverTimestamp();
@@ -2274,7 +2323,7 @@ function openChildDialog(tab, row = null) {
       modal.close();
     } catch (error) {
       console.error(error);
-      toast("No se pudo guardar el registro.");
+      toast(error.durationConflict ? error.message : "No se pudo guardar el registro.");
     } finally {
       childSaving = false;
       if (submitButton?.isConnected) submitButton.disabled = false;
@@ -2400,6 +2449,7 @@ function childForm(tab, row = {}) {
 
   if (tab === "muestras") {
     const opcionesRecursos = listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES);
+    const editorWorks = participantWorks(row);
     const seleccionados = recursosSeleccionados(row);
     const generoActual = normalizeGenre(row.genero || "Sin definir");
     const opcionesGeneros = listaParticipantes("generos", GENEROS);
@@ -2418,7 +2468,7 @@ function childForm(tab, row = {}) {
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
         <div class="wide"><p>Repertorio / actividad (una o varias obras)</p>
-          <div id="obrasLista">${(obrasDe(row).length ? obrasDe(row) : [""]).map(o => campoObra(o, getWorkMinutes(row, o))).join("")}</div>
+          <div id="obrasLista">${(editorWorks.length ? editorWorks : [""]).map(o => campoObra(o, getWorkMinutes(row, o))).join("")}</div>
           <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
           <datalist id="bancoRepertorio">${BANCO_REPERTORIO.map(song => `<option value="${escapeHtml(song.titulo)}">${escapeHtml(song.artista)}</option>`).join("")}</datalist>
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
