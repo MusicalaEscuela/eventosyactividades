@@ -847,3 +847,9 @@ td { font-size: .88rem; line-height: 1.45; }
 .participant-teacher-records p { margin: 4px 0 0; color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
 .participant-teacher-records .small-btn { flex-shrink: 0; }
 @media print { .teacher-admin-panel { display: none; } }
+
+/* Each work owns its duration; shared minutes are shown read-only. */
+.obra-item { display:grid; grid-template-columns:minmax(0,1fr) 110px auto; gap:8px; align-items:end; margin-bottom:12px; }
+.obra-item input { width:100%; min-width:0; }
+.obra-tiempo-hint { grid-column:1 / -1; }
+@media(max-width:560px) { .obra-item { grid-template-columns:minmax(0,1fr) 90px auto; } .obra-item > label:first-child { grid-column:1 / -1; } }

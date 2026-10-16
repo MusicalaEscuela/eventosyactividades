@@ -85,7 +85,7 @@ export function artCapacityRows(c,rows) {
     const areaRows=rows.filter(row=>artAreaForRow(config,row)===area.id);
     const duracionesPendientes=areaRows.filter(row=>row.duracionPendiente===true).length;
     const totalDuracion=areaRows.reduce((sum,row)=>{
-      if(row.duracionPendiente===true)return sum;
+      if(row.duracionPendiente===true)return sum+Number(row.duracionConocidaMin||0);
       const explicitZero=row.duracionMin===0||(typeof row.duracionMin==='string'&&row.duracionMin.trim()!==''&&Number(row.duracionMin.replace(',','.'))===0);
       return explicitZero?sum:sum+Number(row.duracionMin||modalityForRow(config,row)?.duracionSugerida||0);
     },0);

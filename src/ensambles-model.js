@@ -1,5 +1,6 @@
 import { normalizarNombre } from './docentes-model.js';
-import { getParticipantWorks } from './programacion-model.js?v=20261015-duracion-ensambles';
+import { getWorkMinutes, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
+import { getParticipantWorks } from './programacion-model.js?v=20261016-tiempo-por-obra';
 
 const rows = value => Array.isArray(value) ? value : [];
 const text = value => typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
@@ -183,6 +184,11 @@ export function getParticipantDuration(participant = {}, participantsOrIndex = [
     rawMinutes === null ? ['unrecorded', text(source.duracionMin)] : rawMinutes
   ]);
   const result = { minutes: rawMinutes, needsReview: rawMinutes === null, mode: 'solo', confirmationKey, soloWorks, sharedWorks };
+  if (source.duracionPorObra === true && !exhibition) {
+    const duration = workDurationSummary(source, ensemble(source) ? ownWorks : soloWorks);
+    const mode = ensemble(source) ? 'ensemble' : groups.length && !soloWorks.length ? 'ensemble-only' : sharedWorks.length ? 'mixed-confirmed' : 'solo';
+    return { ...result, ...duration, needsReview: duration.pending.length > 0, mode };
+  }
   if (ensemble(source)) return { ...result, mode: 'ensemble' };
   if (groups.length && !soloWorks.length) return { ...result, minutes: 0, needsReview: false, mode: 'ensemble-only' };
   const sharesOriginalWork = ownWorks.some(work => sharedByKey.has(normalizarNombre(work)));
@@ -198,12 +204,13 @@ export function buildPresentationCatalogue(participantsOrIndex = []) {
   if (index.catalogue) return index.catalogue;
   index.catalogue = index.participants.flatMap(row => {
     const duration = getParticipantDuration(row, index);
-    const effectiveDuration = { duracionMin: duration.minutes, duracionPendiente: duration.needsReview };
-    if (ensemble(row)) return [{ ...row, ...effectiveDuration }];
+    const effectiveDuration = { duracionMin: duration.minutes, duracionConocidaMin: duration.knownMinutes ?? duration.minutes ?? 0, duracionPendiente: duration.needsReview };
+    const workDurations = works => row.duracionPorObra ? { duracionObrasReferencia: '', duracionesObras: works.map(obra => ({ obra, minutos: getWorkMinutes(row, obra) })) } : {};
+    if (ensemble(row)) return [{ ...row, ...effectiveDuration, ...workDurations(getParticipantWorks(row)) }];
     const soloWorks = duration.soloWorks;
     const hasGroups = Boolean(index.activeGroupsByParticipant.get(row)?.length);
     if (hasGroups && !soloWorks.length) return [];
-    return [{ ...row, ...effectiveDuration, repertorios: soloWorks, repertorio: soloWorks.join(' / ') }];
+    return [{ ...row, ...effectiveDuration, ...workDurations(soloWorks), repertorios: soloWorks, repertorio: soloWorks.join(' / ') }];
   });
   return index.catalogue;
 }

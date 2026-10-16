@@ -1,5 +1,5 @@
 import {db,doc,collection,onSnapshot,query,orderBy,limit,runTransaction,serverTimestamp} from './firebase-config.js';
-import {defaults,normalizeConfig,DAYS,calendar,activeFamilies,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,capacity,capacityRows,validate,validateDates,minutes,time,eventId,plannedJornadas,jornadaEventId} from './muestras-model.js?v=20261015-duracion-ensambles';
+import {defaults,normalizeConfig,DAYS,calendar,activeFamilies,activeArtAreas,activeModalities,artAreaForRow,modalityForRow,artCapacityRows,capacity,capacityRows,validate,validateDates,minutes,time,eventId,plannedJornadas,jornadaEventId} from './muestras-model.js?v=20261016-tiempo-por-obra';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clone=v=>JSON.parse(JSON.stringify(v));
 const labels={tituloSistema:'Título del sistema',descripcion:'Principio general',filosofia:'Filosofía de las muestras',agrupacion:'Agrupación técnica musical',ciclos:'Calendario',areasArtisticas:'Áreas artísticas',modalidadesArtisticas:'Modalidades de presentación',distribucion:'Semana de música',bloques:'Bloques horarios',pausa:'Pausa técnica',politica:'Política de presentación',capacidad:'Capacidad y ampliación',decisiones:'Decisiones y criterios'};

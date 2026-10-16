@@ -1,4 +1,5 @@
 import { normalizarNombre } from './docentes-model.js';
+import { workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 
 export const MOMENT_PRESETS = [
   { id: 'bienvenida', label: 'Bienvenida', help: 'Recibir al público y abrir el evento.' },
@@ -115,13 +116,15 @@ export function buildMomentPresentation(participant = {}, selectedWorks = []) {
   const nombre = originalText(row.estudianteGrupo) || originalText(row.nombrePresentacion) || 'Participante';
   const rawDuration = row.duracionMin;
   const duration = typeof rawDuration === 'number' ? rawDuration : originalText(rawDuration) ? Number(rawDuration.trim().replace(',', '.')) : NaN;
+  const works = getParticipantWorks(row).filter(work => selected.has(normalizarNombre(work)));
+  const perWork = row.duracionPorObra === true ? workDurationSummary(row, works) : null;
   return {
     participanteId: originalText(row.id),
     estudianteGrupo: nombre,
-    repertorios: getParticipantWorks(row).filter(work => selected.has(normalizarNombre(work))),
+    repertorios: works,
     item: `Presentación artística · ${nombre}`,
     encargado: typeof row.docente === 'string' ? row.docente : '',
-    duracionMin: Number.isFinite(duration) && duration >= 0 ? duration : ''
+    duracionMin: perWork ? perWork.minutes ?? '' : Number.isFinite(duration) && duration >= 0 ? duration : ''
   };
 }
 
