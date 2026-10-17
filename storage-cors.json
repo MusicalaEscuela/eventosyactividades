@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://musicalaescuela.github.io"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Disposition"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -1,3 +1,4 @@
+import { createScores } from './partituras.js?v=20261016-partituras';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
@@ -74,7 +75,8 @@ const state = {
     rider: [],
     checklist: [],
     documentos: [],
-    bitacora: []
+    bitacora: [],
+    partituras: []
   },
   vista: "tabla",
   vistaPrincipal: "eventos",      // "eventos" | "estudiantes"
@@ -141,6 +143,7 @@ const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
 const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, teacherCandidates: docentesYaUsados, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
 
+const scores = createScores({context:()=>({event:state.selectedEvent, presentations:eventPresentations(), rows:state.childData.partituras, user:state.user}),setModal,modalForm,modal,toast});
 const stagePlots = createStagePlots({
   context: () => ({event:state.selectedEvent, presentations:eventPresentations(), participants:state.childData.muestras}),
   toast,
@@ -160,7 +163,7 @@ const stagePlots = createStagePlots({
   }
 });
 const COLLECTION = "eventos";
-const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora"];
+const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora", "partituras"];
 const ACTIVIDADES_COMUNES_VERSION = 1;
 const ACTIVIDADES_COMUNES = [
   { id: "actividad-comun-confirmar-docentes", titulo: "Confirmar con docentes el alcance, avance y si los estudiantes están listos para tocar", area: "Coordinación académica", responsable: "Coordinación académica", prioridad: "Alta" },
@@ -1274,7 +1277,7 @@ function clearSelection() {
 function calculateProgress() {
   const activities = state.childData.actividades.filter(item => normalizeActivityState(item.estado) !== "Cancelada");
   const cancelledActivities = state.childData.actividades.length - activities.length;
-  const others = [...state.childData.muestras, ...state.childData.checklist, ...state.childData.documentos];
+  const others = [...state.childData.muestras, ...state.childData.checklist];
   const total = activities.length + others.length;
   const done = activities.filter(item => normalizeActivityState(item.estado) === "Terminada").length
     + others.filter(item => ["Listo", "Confirmado", "Realizado"].includes(item.estado)).length;
@@ -1304,8 +1307,7 @@ function renderDetail() {
     ["equipo", "Equipo"],
     ["rider", "Rider técnico"],
     ["checklist", "Pendientes"],
-    ["documentos", "Documentos"],
-    ["bitacora", "Bitácora"]
+    ["partituras", "Partituras"]
   ];
   const permiteTablero = KANBAN_TABS.includes(state.tab);
 
@@ -1362,7 +1364,7 @@ function renderDetail() {
             <button class="btn btn-ghost" data-action="pick-students">👥 Del padrón</button>
             <button class="btn btn-ghost" data-action="new-ensemble">🎻 Ensamble</button>
             <button class="btn btn-ghost" data-action="config-participant-lists">⚙️ Configurar listas</button>` : ""}
-          <button class="btn btn-primary" data-action="add-child">+ Agregar</button>
+          <button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>
         </div>
       </div>
       ${state.tab === "muestras" ? resumenRepertorio() : ""}
@@ -1387,6 +1389,7 @@ function renderDetail() {
   attachBoardDragAndDrop();
   teacherAdmin.mount($("#teacherAdminPanel"), evento);
   if (state.tab === "rider") stagePlots.mount($("#stagePlotsPanel"));
+  if (state.tab === "partituras") scores.mount(eventDetail);
 }
 
 /** Arrastrar tarjetas entre columnas para cambiar el estado. */
@@ -1500,6 +1503,7 @@ async function moveCard(tab, id, columnaId) {
 }
 
 function renderTabContent(tab) {
+  if (tab === "partituras") return scores.render();
   if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
   const rows = state.childData[tab] || [];
   if (!rows.length) {
@@ -1658,7 +1662,7 @@ function handleAction(action) {
   if (action === "mark-not-realized") cerrarEvento("no-realizado");
   if (action === "archive-event") archiveEvent();
   if (action === "delete-event") deleteEvent();
-  if (action === "add-child") openChildDialog(state.tab);
+  if (action === "add-child") { if (state.tab === "partituras") scores.openUpload(); else openChildDialog(state.tab); }
   if (action === "pick-students") openStudentPicker("individual");
   if (action === "new-ensemble") openChildDialog('muestras', { esEnsamble: true, integrantes: [], areaArtisticaId: 'musica', modalidadPresentacionId: 'ensambles' });
   if (action === "config-participant-lists") openParticipantListsDialog();
@@ -2678,6 +2682,7 @@ async function deleteEvent() {
   }
 
   try {
+    await scores.removeEventFiles(eventId);
     for (const child of CHILD_COLLECTIONS) {
       const snapshot = await getDocs(collection(db, COLLECTION, eventId, child));
       const docs = snapshot.docs;
@@ -2902,7 +2907,7 @@ async function importEventFromFile(file) {
   const batch = writeBatch(db);
   const planned = [];
   Object.entries(subcolecciones).forEach(([child, items]) => {
-    if (!CHILD_COLLECTIONS.includes(child) || !Array.isArray(items)) return;
+    if (!CHILD_COLLECTIONS.includes(child) || child === "partituras" || !Array.isArray(items)) return;
     items.forEach(item => {
       const ref = doc(collection(db, COLLECTION, eventRef.id, child));
       planned.push({ child, item, ref });

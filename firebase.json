@@ -10,7 +10,9 @@
       "firestore.rules",
       "tests/**",
       "**/*debug.log",
-      "**/*debug.*.log"
+      "**/*debug.*.log",
+      "storage.rules",
+      "storage-cors.json"
     ],
     "headers": [
       {
@@ -26,5 +28,8 @@
   },
   "firestore": {
     "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

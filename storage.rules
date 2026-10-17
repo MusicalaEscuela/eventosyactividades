@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function team() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email in ['alekcaballeromusic@gmail.com', 'catalina.medina.leal@gmail.com', 'imusicala@gmail.com', 'adminmusicala@gmail.com', 'musicalaasesor@gmail.com'];
+    }
+    function admin() {
+      return team() && request.auth.token.email in ['alekcaballeromusic@gmail.com', 'catalina.medina.leal@gmail.com', 'imusicala@gmail.com'];
+    }
+    match /partituras/{eventId}/{uploaderId}/{fileId} {
+      allow read: if team();
+      allow create: if team() && request.auth.uid == uploaderId
+        && request.resource.size > 0 && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.contentType in ['application/pdf', 'image/png', 'image/jpeg', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/xml', 'application/zip'];
+      allow update: if false;
+      allow delete: if admin() || (team() && request.auth.uid == uploaderId);
+    }
+  }
+}
