@@ -1,4 +1,4 @@
-import { createScores } from './partituras.js?v=20261016-partituras';
+import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";

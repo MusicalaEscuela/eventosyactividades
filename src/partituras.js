@@ -1,9 +1,11 @@
 import { app, db, doc, collection, getDocsFromServer, setDoc, deleteDoc, serverTimestamp } from './firebase-config.js?v=20261011-docentes';
 import { getStorage, ref, uploadBytesResumable, getBlob, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
 
-const storage=getStorage(app);
-storage.setMaxUploadRetryTime(15000);
-storage.setMaxOperationRetryTime(15000);
+let storage;
+function scoreStorage(){
+  if(!storage){storage=getStorage(app);storage.maxUploadRetryTime=15000;storage.maxOperationRetryTime=15000;}
+  return storage;
+}
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formats={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',musicxml:'application/xml',xml:'application/xml',mxl:'application/zip',mscz:'application/zip'};
 const admins=['alekcaballeromusic@gmail.com','catalina.medina.leal@gmail.com','imusicala@gmail.com'];
@@ -25,7 +27,7 @@ export function createScores({context,setModal,modalForm,modal,toast}){
       e.preventDefault();if(uploading)return;
       const form=new FormData(modalForm),file=form.get('archivo'),ext=file?.name.split('.').pop().toLowerCase();
       if(!file?.size || file.size>20*1024*1024 || !formats[ext]){toast('Elige un archivo permitido de hasta 20 MB.');return;}
-      const user=ctx.user,id=crypto.randomUUID(),path=`partituras/${eventId}/${user.uid}/${id}.${ext}`,object=ref(storage,path);
+      const user=ctx.user,id=crypto.randomUUID(),path=`partituras/${eventId}/${user.uid}/${id}.${ext}`,object=ref(scoreStorage(),path);
       const presentation=ctx.presentations.find(p=>p.id===form.get('participanteId'));
       const record={titulo:String(form.get('titulo')).trim(),obra:String(form.get('obra')).trim(),notas:String(form.get('notas')).trim(),participanteId:presentation?.id||'',presentacion:presentation?.estudianteGrupo||'',archivoNombre:file.name,storagePath:path,size:file.size,contentType:formats[ext],createdBy:user.email,createdAt:serverTimestamp()};
       uploading=true;modalForm.querySelectorAll('button,input,select,textarea').forEach(el=>el.disabled=true);
@@ -47,11 +49,11 @@ export function createScores({context,setModal,modalForm,modal,toast}){
     const ctx=context(),eventId=ctx.event.id;
     host.querySelectorAll('[data-score-download]').forEach(button=>button.onclick=async()=>{
       const row=ctx.rows.find(r=>r.id===button.dataset.scoreDownload);button.disabled=true;
-      try{const blob=await getBlob(ref(storage,row.storagePath),20*1024*1024),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=row.archivoNombre||row.titulo;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(error){console.error(error);toast(errorText(error));}finally{button.disabled=false;}
+      try{const blob=await getBlob(ref(scoreStorage(),row.storagePath),20*1024*1024),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=row.archivoNombre||row.titulo;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(error){console.error(error);toast(errorText(error));}finally{button.disabled=false;}
     });
     host.querySelectorAll('[data-score-delete]').forEach(button=>button.onclick=async()=>{
       const row=ctx.rows.find(r=>r.id===button.dataset.scoreDelete);if(!confirm(`¿Eliminar el archivo «${row.titulo}»?`))return;button.disabled=true;
-      try{try{await deleteObject(ref(storage,row.storagePath));}catch(error){if(error.code!=='storage/object-not-found')throw error;}await deleteDoc(doc(db,'eventos',eventId,'partituras',row.id));toast('Archivo eliminado.');}catch(error){console.error(error);toast(errorText(error));}finally{button.disabled=false;}
+      try{try{await deleteObject(ref(scoreStorage(),row.storagePath));}catch(error){if(error.code!=='storage/object-not-found')throw error;}await deleteDoc(doc(db,'eventos',eventId,'partituras',row.id));toast('Archivo eliminado.');}catch(error){console.error(error);toast(errorText(error));}finally{button.disabled=false;}
     });
   }
   async function removeEventFiles(eventId){
@@ -60,7 +62,7 @@ export function createScores({context,setModal,modalForm,modal,toast}){
     for(const record of snapshot.docs){
       const path=record.data().storagePath;
       if(!path?.startsWith(`partituras/${eventId}/`))continue;
-      try{await deleteObject(ref(storage,path));}catch(error){if(error.code!=='storage/object-not-found')throw error;}
+      try{await deleteObject(ref(scoreStorage(),path));}catch(error){if(error.code!=='storage/object-not-found')throw error;}
     }
   }
   return {openUpload,render,mount,removeEventFiles};
