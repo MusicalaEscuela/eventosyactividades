@@ -44,7 +44,7 @@ import {
   ripFetchEstudiantes,
   ripNorm,
   RIP_ALLOWED_EMAILS
-} from "./rip-config.js";
+} from "./rip-config.js?v=20261017-multiarea";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -757,9 +757,18 @@ function clavesInscritas() {
 }
 
 const FILTROS_FAMILIA_MUSICAL = { bateria:["bateria","percusion","drums"], violin:["violin","viola","cello","violoncello","contrabajo","cuerdas frotadas"], canto:["canto","voz","vocal","cantar"], guitarra:["guitarra","bajo","ukelele","cuerdas pulsadas"], piano:["piano","teclado","teclas"], ensambles:["ensamble","banda","grupo musical","orquesta"] };
-function perfilArtistico(estudiante) { return ripNorm([estudiante.area, estudiante.instrumento, estudiante.programa].filter(Boolean).join(" · ")); }
-function areaArtisticaEstudiante(estudiante) { const perfil=perfilArtistico(estudiante); if(perfil.includes("danza"))return "danza";if(perfil.includes("teatro"))return "teatro";if(perfil.includes("plast")||perfil.includes("visual"))return "artes-plasticas";if(perfil.includes("musica")||estudiante.instrumento||estudiante.programa)return "musica";return ""; }
-function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(areaArtisticaEstudiante(estudiante)!==areaId)return false;if(areaId!=="musica"||!modalidadId)return true;return (FILTROS_FAMILIA_MUSICAL[modalidadId]||[modalidadId]).some(termino=>perfilArtistico(estudiante).includes(ripNorm(termino))); }
+function perfilArtistico(estudiante) { return ripNorm([estudiante.area, estudiante.instrumento, estudiante.programa, ...(estudiante.servicios || [])].filter(Boolean).join(" · ")); }
+function areasArtisticasEstudiante(estudiante) {
+  const perfil = perfilArtistico(estudiante), areas = [];
+  if (/\b(danza\w*|ballet|baile\w*|dance|bailar\w*)\b/.test(perfil)) areas.push('danza');
+  if (/\b(teatro|actuacion|actuacion teatral|dramaturgia|expresion dramatica)\b/.test(perfil)) areas.push('teatro');
+  if (/\b(plastica\w*|artes visuales|artes plasticas|dibujo|pintura|escultura|ceramica|manualidades)\b/.test(perfil)) areas.push('artes-plasticas');
+  const musical = ['musica', 'musical', 'iniciacion', 'exploracion', 'violin', 'viola', 'cello', 'violoncello', 'contrabajo', 'piano', 'teclado', 'guitarra', 'bajo', 'ukelele', 'canto', 'voz', 'vocal', 'coro', 'bateria', 'percusion', 'flauta', 'saxofon', 'clarinete', 'trompeta', 'trombon', 'ensamble', 'orquesta', 'cuerdas', 'vientos', 'acordeon', 'arpa', 'bandola', 'tiple', 'fagot', 'oboe', 'tuba', 'eufonio', 'drums', 'cantar', 'teclas'];
+  if (musical.some(term => new RegExp('\\b'+term+'\\b').test(perfil))) areas.push('musica');
+  return areas;
+}
+function areaArtisticaEstudiante(estudiante) { return areasArtisticasEstudiante(estudiante)[0] || ''; }
+function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(!areasArtisticasEstudiante(estudiante).includes(areaId))return false;if(areaId!=="musica"||!modalidadId)return true;return (FILTROS_FAMILIA_MUSICAL[modalidadId]||[modalidadId]).some(termino=>perfilArtistico(estudiante).includes(ripNorm(termino))); }
 
 function candidatosPicker() {
   const { texto, soloActivos, areaId, modalidadId } = state.picker;
