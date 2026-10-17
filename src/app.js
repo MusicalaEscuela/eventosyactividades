@@ -44,7 +44,7 @@ import {
   ripFetchEstudiantes,
   ripNorm,
   RIP_ALLOWED_EMAILS
-} from "./rip-config.js?v=20261017-multiarea-2";
+} from "./rip-config.js?v=20261017-multiarea-3";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -777,13 +777,8 @@ function candidatosPicker() {
     .filter(e => !soloActivos || e.nivel === "activo")
     .filter(e => !busqueda || ripNorm(e.nombre).includes(busqueda));
   const coincidencias = base.filter(e => coincideConFiltroArtistico(e, areaId, modalidadId));
-  // Si coordinación busca a alguien por nombre, no la escondemos solo porque
-  // RIP aún no tenga su instrumento clasificado. El distintivo advierte que la
-  // ficha debe completarse, pero permite asignar su presentación al filtro actual.
-  if (busqueda) {
-    const sinPerfil = base.filter(e => !areaArtisticaEstudiante(e));
-    return [...coincidencias, ...sinPerfil.filter(e => !coincidencias.includes(e))];
-  }
+  // Buscar por nombre permite revisar perfiles incompletos o de otras áreas.
+  if (busqueda) return base;
   return coincidencias.length ? coincidencias : base.filter(e => !areaArtisticaEstudiante(e));
 }
 
@@ -823,6 +818,7 @@ function renderPickerLista() {
           <span class="picker-nombre">${escapeHtml(est.nombre)}</span>
           <span class="badge ${NIVEL_BADGE[est.nivel]}">${escapeHtml(est.etiqueta)}</span>
           ${perfilArtistico(est)?`<span class="badge info">${escapeHtml([est.area,est.instrumento,est.programa].filter(Boolean).join(" · "))}</span>`:`<span class="badge warning">Por confirmar en RIP</span>`}
+          ${!coincideConFiltroArtistico(est,state.picker.areaId,state.picker.modalidadId)?`<span class="badge warning">Área o modalidad por confirmar para esta muestra</span>`:""}
           ${yaEsta
             ? `<span class="badge info">Ya está en el evento</span>`
             : `<span class="badge ${previas ? "neutral" : "off"}">${previas ? `${previas} presentación${previas === 1 ? "" : "es"}` : "Nunca se ha presentado"}</span>`}
@@ -933,6 +929,8 @@ function openStudentPicker(modo = "individual") {
     event.preventDefault();
     const elegidos = state.ripEstudiantes.filter(e => state.picker.seleccion.has(e.studentId || e.claveNombre));
     if (!elegidos.length) return;
+    const porConfirmar = elegidos.filter(est=>!coincideConFiltroArtistico(est,state.picker.areaId,state.picker.modalidadId));
+    if (porConfirmar.length && !confirm('El perfil de RIP no confirma el área o modalidad elegida para: '+porConfirmar.map(est=>est.nombre).join(', ')+'. ¿Confirmas que participan en esta muestra? No se cambiarán sus datos de RIP.')) return;
 
     const nombreEnsamble = $("#pickerNombre")?.value.trim() || "";
     if (modo === "ensamble" && !nombreEnsamble) {
