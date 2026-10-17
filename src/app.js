@@ -44,7 +44,7 @@ import {
   ripFetchEstudiantes,
   ripNorm,
   RIP_ALLOWED_EMAILS
-} from "./rip-config.js?v=20261017-multiarea";
+} from "./rip-config.js?v=20261017-multiarea-2";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
