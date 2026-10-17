@@ -2539,7 +2539,8 @@ function childForm(tab, row = {}) {
   if (tab === "equipo") {
     return `<h3>${row.id ? "Editar integrante" : "Agregar integrante del equipo"}</h3><div class="form-grid">
       <label>Nombre<input required name="nombre" list="personasDisponibles" value="${escapeHtml(row.nombre || "")}" /></label>
-      <label>Rol / función<input required name="rol" value="${escapeHtml(row.rol || "")}" /></label>
+      <label>Rol / función<input required name="rol" list="rolesEquipo" value="${escapeHtml(row.rol || "")}" placeholder="Elige o escribe una función" /><span class="field-hint">Puedes elegir una sugerencia o escribir otra función.</span></label>
+      <datalist id="rolesEquipo">${[...new Map(["Coordinación", "Producción", "Presentación / maestro de ceremonias", "Sonido", "Iluminación", "Apoyo en escenario", "Montaje y desmontaje", "Recepción", "Registro y asistencia", "Acompañamiento de estudiantes", "Apoyo docente", "Fotografía y video", "Logística", ...state.personas.map(person => person.rol), ...state.childData.equipo.map(person => person.rol)].filter(Boolean).map(role => [normalizarNombre(role), role])).values()].map(role => `<option value="${escapeHtml(role)}"></option>`).join("")}</datalist>
       <label>Zona / bloque<input name="zona" value="${escapeHtml(row.zona || "")}" /></label>
       <label>Horario<input name="horario" value="${escapeHtml(row.horario || "")}" /></label>
       <label>Contacto<input name="contacto" value="${escapeHtml(row.contacto || "")}" /></label>
