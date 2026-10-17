@@ -110,7 +110,7 @@ export function collectReusableContext({ people = [], places = [], events = [], 
   const addTeacher = (name, detail) => { add('teachers', name, detail); add('people', name, detail); };
   for (const person of arrayRows(people)) {
     const name = person?.nombre || person?.name;
-    const detail = joinDetail([person?.rol, person?.tipo, person?.area, person?.source]);
+    const detail = joinDetail([normalizarNombre(person?.rol) === normalizarNombre(person?.tipo) ? "" : person?.rol, person?.tipo, (Array.isArray(person?.areas) ? person.areas.join(" · ") : person?.area), person?.source]);
     add('people', name, detail);
     if (isTeacher(person)) add('teachers', name, detail || 'Docente de la base de personas');
   }

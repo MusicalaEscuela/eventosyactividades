@@ -384,7 +384,6 @@ function renderForm(savedMessage = '', showPrivateLink = false) {
   <form id="teacherForm" novalidate><fieldset id="editableFields">
     <section class="docentes-card"><h2>1. Tu presencia</h2><div class="docentes-grid">
       <label>¿Estarás presente en la muestra?<select name="asistencia">${['Por confirmar', 'Sí', 'No'].map(value => option(value, value, ficha.asistencia)).join('')}</select></label>
-      ${field('Disponibilidad y horario', 'disponibilidad', ficha.disponibilidad, { max: 1000, placeholder: 'Ej.: puedo acompañar de 3:00 a 5:00 p. m.' })}
     </div><details class="docentes-disclosure" id="generalTeacherDetails"${ficha.asistencia === 'No' ? ' open' : ''}><summary>Indicaciones generales y apoyo</summary><div class="docentes-grid">
       ${field('Apoyo que se necesita si no estás', 'apoyo', ficha.apoyo, { textarea: true, placeholder: 'Quién puede acompañar y qué ayuda necesita el grupo.' })}
       ${field('Indicaciones generales de tu grupo', 'indicacionesGenerales', ficha.indicacionesGenerales, { textarea: true, max: 4000, placeholder: 'Llegada, vestuario u organización común a las presentaciones.' })}
@@ -430,7 +429,7 @@ function readPresentations() {
 
 function readForm(estado) {
   const form = document.getElementById('teacherForm');
-  return { token: state.token || undefined, revision: state.revision, eventoId: state.ficha.eventoId, docenteId: state.ficha.docenteId, docenteNombre: state.ficha.docenteNombre, asistencia: form.elements.asistencia.value, disponibilidad: form.elements.disponibilidad.value.trim(), apoyo: form.elements.apoyo.value.trim(), indicacionesGenerales: form.elements.indicacionesGenerales.value.trim(), estado, presentaciones: readPresentations().map(presentationPayload) };
+  return { token: state.token || undefined, revision: state.revision, eventoId: state.ficha.eventoId, docenteId: state.ficha.docenteId, docenteNombre: state.ficha.docenteNombre, asistencia: form.elements.asistencia.value, disponibilidad: state.ficha.disponibilidad || '', apoyo: form.elements.apoyo.value.trim(), indicacionesGenerales: form.elements.indicacionesGenerales.value.trim(), estado, presentaciones: readPresentations().map(presentationPayload) };
 }
 
 function markDirty() {

@@ -2,8 +2,8 @@ import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
-import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
-import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-personas";
+import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
@@ -1587,9 +1587,9 @@ function renderTabContent(tab) {
   }
 
   if (tab === "equipo") {
-    return table(["Persona", "Rol", "Zona / bloque", "Horario", "Contacto", "Confirmación", ""], rows.map(row => [
+    return table(["Persona", "Rol", "Zona / bloque", "Horario", "Confirmación", ""], rows.map(row => [
       escapeHtml(row.nombre || ""), escapeHtml(row.rol || ""), escapeHtml(row.zona || ""),
-      escapeHtml(row.horario || ""), escapeHtml(row.contacto || ""), badge(normalizeTeamState(row.estado)), rowActions(tab, row.id)
+      escapeHtml(row.horario || ""), badge(normalizeTeamState(row.estado)), rowActions(tab, row.id)
     ]));
   }
 
@@ -2190,7 +2190,7 @@ function openChildDialog(tab, row = null) {
     refreshParticipantTeacherContext();
   }
 
-  // Al escoger a alguien de la base de personas, se traen su rol y contacto.
+  // Al escoger a alguien de la base de personas, se trae su función.
   const nombreInput = modalForm.querySelector('[name="nombre"]');
   if (tab === "equipo" && nombreInput) {
     nombreInput.addEventListener("change", () => {
@@ -2198,9 +2198,7 @@ function openChildDialog(tab, row = null) {
       const persona = matches.length === 1 ? matches[0] : null;
       if (!persona) return;
       const rolInput = modalForm.querySelector('[name="rol"]');
-      const contactoInput = modalForm.querySelector('[name="contacto"]');
       if (rolInput && !rolInput.value) rolInput.value = persona.rol || "";
-      if (contactoInput && !contactoInput.value) contactoInput.value = persona.telefono || persona.email || "";
     });
   }
 
@@ -2577,7 +2575,6 @@ function childForm(tab, row = {}) {
       <datalist id="rolesEquipo">${[...new Map(["Coordinación", "Producción", "Presentación / maestro de ceremonias", "Sonido", "Iluminación", "Apoyo en escenario", "Montaje y desmontaje", "Recepción", "Registro y asistencia", "Acompañamiento de estudiantes", "Apoyo docente", "Fotografía y video", "Logística", ...state.personas.map(person => person.rol), ...state.childData.equipo.map(person => person.rol)].filter(Boolean).map(role => [normalizarNombre(role), role])).values()].map(role => `<option value="${escapeHtml(role)}"></option>`).join("")}</datalist>
       <label>Zona / bloque<input name="zona" value="${escapeHtml(row.zona || "")}" /></label>
       <fieldset class="wide form-section"><legend>Horario de apoyo</legend><div class="form-grid"><label>Desde<input type="time" name="horarioDesde" value="${escapeHtml(row.horarioDesde || "")}" /></label><label>Hasta<input type="time" name="horarioHasta" value="${escapeHtml(row.horarioHasta || "")}" /></label></div><p class="field-hint">Elige la hora de llegada y la hora de salida. Por ejemplo: de 17:30 a 20:00. Si termina antes de la hora de inicio, se considera el día siguiente.</p>${!row.horarioDesde && row.horario ? `<p class="field-hint">Horario anterior: ${escapeHtml(row.horario)}. Se conserva hasta que elijas una franja.</p>` : ""}</fieldset>
-      <label>Contacto<input name="contacto" value="${escapeHtml(row.contacto || "")}" /></label>
       <label>Confirmación<select name="estado">${selectOptions(TEAM_STATES, normalizeTeamState(row.estado))}</select><span class="field-hint">Pendiente: falta confirmar su apoyo. Confirmado: cuenta con su participación. No disponible: no podrá apoyar.</span></label>
     </div>`;
   }
@@ -2984,7 +2981,7 @@ function renderPlaceCards() {
     const facts = [
       lugar.capacidad ? `<span>Capacidad: <b>${escapeHtml(lugar.capacidad)} personas</b></span>` : "",
       `<span>Costo: <b>${escapeHtml(costoResumen(lugar) || "Por definir")}</b></span>`,
-      lugar.contactoNombre || lugar.contacto ? `<span>Contacto: <b>${escapeHtml(lugar.contactoNombre || lugar.contacto)}${lugar.contactoTelefono ? ` · ${escapeHtml(lugar.contactoTelefono)}` : ""}</b></span>` : "",
+      lugar.contactoNombre || lugar.contacto ? `<span>Contacto: <b>${escapeHtml(lugar.contactoNombre || lugar.contacto)}</b></span>` : "",
       lugar.direccion ? `<span>Dirección: <b>${escapeHtml(lugar.direccion)}</b></span>` : "",
       lugar.horarioDesde || lugar.horarioHasta ? `<span>Horario: <b>${escapeHtml(lugar.horarioDesde || "?")} – ${escapeHtml(lugar.horarioHasta || "?")}</b></span>` : ""
     ].filter(Boolean).join("");
@@ -3082,12 +3079,6 @@ function openPlaceForm(lugar = null) {
         <label>Persona encargada
           <input name="contactoNombre" value="${escapeHtml(l.contactoNombre || l.contacto || "")}" placeholder="Nombre y cargo" />
         </label>
-        <label>Teléfono / WhatsApp
-          <input type="tel" name="contactoTelefono" value="${escapeHtml(l.contactoTelefono || "")}" placeholder="+57 300 000 0000" />
-        </label>
-        <label class="wide">Correo
-          <input type="email" name="contactoEmail" value="${escapeHtml(l.contactoEmail || "")}" placeholder="correo@lugar.com" />
-        </label>
       </div>
     </fieldset>
 
@@ -3138,7 +3129,7 @@ function openPlaceForm(lugar = null) {
     event.preventDefault();
     const formData = new FormData(modalForm);
     const data = {};
-    ["nombre", "estado", "costoModalidad", "costoIncluye", "contactoNombre", "contactoTelefono", "contactoEmail",
+    ["nombre", "estado", "costoModalidad", "costoIncluye", "contactoNombre",
      "notasTecnicas", "direccion", "ciudad", "diasDisponibles", "horarioDesde", "horarioHasta", "documentos", "observaciones"]
       .forEach(key => data[key] = formValue(formData, key) || "");
 
@@ -3219,17 +3210,19 @@ function syncDatalists() {
   refreshParticipantTeacherContext();
 }
 
+function personAreas(person = {}) {
+  const values = Array.isArray(person.areas) ? person.areas : [person.area];
+  return [...new Set(values.filter(value => typeof value === 'string' && value.trim() && value !== 'General').map(value=>value.trim()))];
+}
+
 function renderPeopleCards() {
   if (!state.personas.length) {
     return `<div class="empty-state"><h3>Sin personas todavía</h3><p>Registra docentes, técnicos, proveedores y aliados una sola vez. Después aparecen como sugerencia en todos los formularios.</p></div>`;
   }
   return `<div class="place-grid">${state.personas.map(persona => {
     const facts = [
-      persona.rol ? `<span>Rol: <b>${escapeHtml(persona.rol)}</b></span>` : "",
-      persona.area && persona.area !== "General" ? `<span>Área: <b>${escapeHtml(persona.area)}</b></span>` : "",
-      persona.telefono ? `<span>Tel: <b>${escapeHtml(persona.telefono)}</b></span>` : "",
-      persona.email ? `<span>Correo: <b>${escapeHtml(persona.email)}</b></span>` : "",
-      persona.disponibilidad ? `<span>Disponibilidad: <b>${escapeHtml(persona.disponibilidad)}</b></span>` : ""
+      persona.rol && normalizarNombre(persona.rol) !== normalizarNombre(persona.tipo) ? `<span>Función: <b>${escapeHtml(persona.rol)}</b></span>` : "",
+      personAreas(persona).length ? `<span>Áreas: <b>${escapeHtml(personAreas(persona).join(" · "))}</b></span>` : ""
     ].filter(Boolean).join("");
     return `
       <article class="place-card">
@@ -3284,17 +3277,9 @@ function openPersonForm(persona = null) {
       <legend>Datos</legend>
       <div class="form-grid">
         <label class="wide">Nombre completo<input required name="nombre" value="${escapeHtml(p.nombre || "")}" /></label>
-        <label>Tipo<select name="tipo">${selectOptions(PERSONA_TIPOS, p.tipo || "Docente")}</select></label>
-        <label>Área<select name="area">${selectOptions(FIELD_OPTIONS.areas, p.area || "General")}</select></label>
-        <label class="wide">Rol / función<input name="rol" value="${escapeHtml(p.rol || "")}" placeholder="Ej: Docente de piano, Ingeniero de sonido" /></label>
-      </div>
-    </fieldset>
-    <fieldset class="form-section">
-      <legend>Contacto</legend>
-      <div class="form-grid">
-        <label>Teléfono / WhatsApp<input type="tel" name="telefono" value="${escapeHtml(p.telefono || "")}" placeholder="+57 300 000 0000" /></label>
-        <label>Correo<input type="email" name="email" value="${escapeHtml(p.email || "")}" /></label>
-        <label class="wide">Disponibilidad habitual<input name="disponibilidad" value="${escapeHtml(p.disponibilidad || "")}" placeholder="Ej: sábados en la mañana" /></label>
+        <label class="wide">Vínculo / tipo de persona<select name="tipo">${selectOptions(PERSONA_TIPOS, p.tipo || "Docente")}</select><span class="field-hint">Cómo participa en Musicala: docente, administrativo, técnico o proveedor.</span></label>
+        <fieldset class="wide form-section"><legend>Áreas (puedes elegir varias)</legend><div class="form-grid">${[...new Set([...FIELD_OPTIONS.areas.filter(area=>area!=="General"),...personAreas(p)])].map(area=>`<label class="check-card"><input type="checkbox" name="areas" value="${escapeHtml(area)}" ${personAreas(p).includes(area)?"checked":""} /><span>${escapeHtml(area)}</span></label>`).join("")}</div><p class="field-hint">Por ejemplo: Música y Artes plásticas. Si no eliges ninguna, queda como General.</p></fieldset>
+        <label class="wide">Función específica (opcional)<input name="rol" value="${escapeHtml(normalizarNombre(p.rol) === normalizarNombre(p.tipo) ? "" : p.rol || "")}" placeholder="Ej.: Piano, apoyo en escenario o recepción" /><span class="field-hint">Úsala para precisar su función. Si elegiste Docente, no necesitas repetirlo aquí.</span></label>
       </div>
     </fieldset>
     <fieldset class="form-section">
@@ -3307,8 +3292,10 @@ function openPersonForm(persona = null) {
     event.preventDefault();
     const formData = new FormData(modalForm);
     const data = {};
-    ["nombre", "tipo", "area", "rol", "telefono", "email", "disponibilidad", "notas"]
+    ["nombre", "tipo", "rol", "notas"]
       .forEach(key => data[key] = formValue(formData, key) || "");
+    data.areas = [...new Set(formData.getAll("areas").map(String))];
+    data.area = data.areas[0] || "General";
     data.updatedAt = serverTimestamp();
     data.updatedBy = state.user.email;
 
