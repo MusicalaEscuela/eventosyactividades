@@ -1,3 +1,4 @@
+import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
@@ -535,6 +536,7 @@ function listenParticipaciones() {
     state.participaciones = indice;
     syncDatalists();
     if (state.vistaPrincipal === "estudiantes") renderEstudiantes();
+    if (modal.open && $("#pickerLista") && state.picker) { $("#pickerLista").innerHTML=renderPickerLista(); actualizarPickerPie(); }
   }, error => {
     console.error(error);
     toast(explicarError(error, "No pude leer el historial de participaciones"));
@@ -758,7 +760,16 @@ function clavesInscritas() {
 
 const FILTROS_FAMILIA_MUSICAL = { bateria:["bateria","percusion","drums"], violin:["violin","viola","cello","violoncello","contrabajo","cuerdas frotadas"], canto:["canto","voz","vocal","cantar"], guitarra:["guitarra","bajo","ukelele","cuerdas pulsadas"], piano:["piano","teclado","teclas"], ensambles:["ensamble","banda","grupo musical","orquesta"] };
 function perfilArtistico(estudiante) { return ripNorm([estudiante.area, estudiante.instrumento, estudiante.programa, ...(estudiante.servicios || [])].filter(Boolean).join(" · ")); }
-function areasArtisticasEstudiante(estudiante) {
+let artisticHistoryCache = null;
+function artisticHistoryFor(student) {
+  const sources=[state.ripEstudiantes,state.participantesRegistrados,state.childData.muestras,state.eventos,state.selectedEventId];
+  if(!sameReferences(artisticHistoryCache?.sources,sources)){
+    const participants=[...state.participantesRegistrados,...state.childData.muestras.map(row=>({...row,eventoId:state.selectedEventId}))];
+    artisticHistoryCache={sources,index:buildArtisticHistory({students:state.ripEstudiantes,participants,events:state.eventos})};
+  }
+  return artisticHistoryCache.index.get(String(student.studentId||'').trim()||ripNorm(student.nombre))||[];
+}
+function ripArtisticAreas(estudiante) {
   const perfil = perfilArtistico(estudiante), areas = [];
   if (/\b(danza\w*|ballet|baile\w*|dance|bailar\w*)\b/.test(perfil)) areas.push('danza');
   if (/\b(teatro|actuacion|actuacion teatral|dramaturgia|expresion dramatica)\b/.test(perfil)) areas.push('teatro');
@@ -767,8 +778,9 @@ function areasArtisticasEstudiante(estudiante) {
   if (musical.some(term => new RegExp('\\b'+term+'\\b').test(perfil))) areas.push('musica');
   return areas;
 }
+function areasArtisticasEstudiante(estudiante) { return [...new Set([...ripArtisticAreas(estudiante),...artisticHistoryFor(estudiante).map(record=>record.area)])]; }
 function areaArtisticaEstudiante(estudiante) { return areasArtisticasEstudiante(estudiante)[0] || ''; }
-function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(!areasArtisticasEstudiante(estudiante).includes(areaId))return false;if(areaId!=="musica"||!modalidadId)return true;return (FILTROS_FAMILIA_MUSICAL[modalidadId]||[modalidadId]).some(termino=>perfilArtistico(estudiante).includes(ripNorm(termino))); }
+function coincideConFiltroArtistico(estudiante,areaId,modalidadId) { if(!areasArtisticasEstudiante(estudiante).includes(areaId))return false;if(areaId!=="musica"||!modalidadId)return true;return artisticHistoryFor(estudiante).some(record=>record.area===areaId && record.modality===modalidadId) || (FILTROS_FAMILIA_MUSICAL[modalidadId]||[modalidadId]).some(termino=>perfilArtistico(estudiante).includes(ripNorm(termino))); }
 
 function candidatosPicker() {
   const { texto, soloActivos, areaId, modalidadId } = state.picker;
@@ -818,6 +830,7 @@ function renderPickerLista() {
           <span class="picker-nombre">${escapeHtml(est.nombre)}</span>
           <span class="badge ${NIVEL_BADGE[est.nivel]}">${escapeHtml(est.etiqueta)}</span>
           ${perfilArtistico(est)?`<span class="badge info">${escapeHtml([est.area,est.instrumento,est.programa].filter(Boolean).join(" · "))}</span>`:`<span class="badge warning">Por confirmar en RIP</span>`}
+          ${artisticHistoryFor(est).length?`<span class="badge info">Historial de muestras: ${escapeHtml([...new Set(artisticHistoryFor(est).map(record=>annualSystem.areaName(record.area,record.area)))].join(" · "))}</span>`:""}
           ${!coincideConFiltroArtistico(est,state.picker.areaId,state.picker.modalidadId)?`<span class="badge warning">Área o modalidad por confirmar para esta muestra</span>`:""}
           ${yaEsta
             ? `<span class="badge info">Ya está en el evento</span>`
@@ -898,7 +911,7 @@ function openStudentPicker(modo = "individual") {
   actualizarPickerPie();
 
   const lista = $("#pickerLista");
-  const repintar = () => { lista.innerHTML=renderPickerLista();const sinPerfil=estudiantesSinPerfilParaFiltro(),filtroInfo=$("#pickerFiltroInfo");if(filtroInfo)filtroInfo.textContent=sinPerfil?(pickerMuestraPerfilesPorConfirmar()?`RIP no tiene coincidencias clasificadas para este filtro. Se muestran ${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} por confirmar para que no quede nadie por fuera.`:`${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} sin área o instrumento registrado en RIP no coincide${sinPerfil===1?"":"n"} con este filtro.`):"El padrón está filtrado por el área e instrumento seleccionados.";actualizarPickerPie(); };
+  const repintar = () => { lista.innerHTML=renderPickerLista();const sinPerfil=estudiantesSinPerfilParaFiltro(),filtroInfo=$("#pickerFiltroInfo");if(filtroInfo)filtroInfo.textContent=sinPerfil?(pickerMuestraPerfilesPorConfirmar()?`No hay coincidencias clasificadas en RIP ni en el historial para este filtro. Se muestran ${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} por confirmar para que no quede nadie por fuera.`:`${sinPerfil} estudiante${sinPerfil===1?"":"s"} activo${sinPerfil===1?"":"s"} sin área registrada en RIP ni en muestras no coincide${sinPerfil===1?"":"n"} con este filtro.`):"El padrón combina las áreas de RIP con el historial de muestras.";actualizarPickerPie(); };
 
   $("#pickerBuscar").addEventListener("input", event => {
     state.picker.texto = event.target.value;
