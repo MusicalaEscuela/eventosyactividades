@@ -3,7 +3,7 @@ import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
-import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-personas";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-sync-fichas";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";

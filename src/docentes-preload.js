@@ -72,3 +72,27 @@ export function samePreload(left, right) {
   const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
   return JSON.stringify(stable(left)) === JSON.stringify(stable(right));
 }
+
+/** Append only missing entries; ambiguous matches remain available in the roster. */
+export function planMissingPresentations(roster, existing, previousRoster = []) {
+  const identity = row => ['tipo','areaArtisticaId','estudianteGrupo'].map(key=>normalizarNombre(row[key])).join('|');
+  const used = new Set(), additions = [];
+  let pending = 0;
+  const ids = new Set(existing.map(row=>row.id));
+  for (const source of roster) {
+    const old = source.inscripcionId ? previousRoster.find(row=>row.inscripcionId===source.inscripcionId) : null;
+    let match = existing.find(row=>!used.has(row.id) && (preloadMatchesPresentation(source,row) || old && preloadMatchesPresentation(old,row)));
+    if (!match) {
+      const sameIdentity = existing.filter(row=>!used.has(row.id) && identity(row)===identity(source));
+      if (sameIdentity.length===1 && roster.filter(row=>identity(row)===identity(source)).length===1) match=sameIdentity[0];
+      else if (sameIdentity.length) { pending++; continue; }
+    }
+    if (match) { used.add(match.id); continue; }
+    if (existing.length+additions.length>=MAX_PRESENTACIONES) { pending++; continue; }
+    let number=1;while(ids.has(`p${String(number).padStart(2,'0')}`))number++;
+    const id=`p${String(number).padStart(2,'0')}`;ids.add(id);
+    const {inscripcionId,integrantesDetalle,...presentation}=source;
+    additions.push({id,...presentation});
+  }
+  return {additions,pending};
+}

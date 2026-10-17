@@ -2,7 +2,7 @@ import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, q
 import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js';
 import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js';
 import { buildTeacherOptions } from './eventos-context.js?v=20261017-personas';
-import { buildTeacherPreload, preloadMatchesPresentation, samePreload } from './docentes-preload.js?v=20261014-ensambles';
+import { buildTeacherPreload, preloadMatchesPresentation, samePreload, planMissingPresentations } from './docentes-preload.js?v=20261017-sync-fichas';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const camposInstruccion = { preparacion:'Preparación', entrada:'Entrada a escena', inicio:'Señal de inicio', acompanamiento:'Acompañamiento', cierre:'Cierre', observaciones:'Observaciones' };
@@ -35,7 +35,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
   const publicUrl = () => { const u = new URL('docentes.html', location.href); u.searchParams.set('evento', event.id); return u.href; };
   const currentContext = () => { const id = event?.id, version = generation, email = user()?.email; return { id, email, active: () => generation === version && event?.id === id && user()?.email === email && Boolean(email) }; };
   function preparationSummary(results, failures = []) {
-    const counts = results.map(result => `${result.name}: ${result.total} inscripción(es), ${result.created ? result.seeded : 'respuestas anteriores conservadas'}${result.created ? ' presentación(es) precargada(s)' : ''}${result.excess ? `; el listado completo está disponible, la ficha admite hasta 20 presentaciones` : ''}`);
+    const counts = results.map(result => `${result.name}: ${result.total} inscripción(es), ${result.created ? result.seeded : `${result.added.length} presentación(es) nueva(s); respuestas anteriores conservadas${result.pending ? '; '+result.pending+' pendiente(s) en el selector' : ''}`}${result.created ? ' presentación(es) precargada(s)' : ''}${result.excess ? `; el listado completo está disponible, la ficha admite hasta 20 presentaciones` : ''}`);
     return `${results.length} ficha(s) preparadas y verificadas.${counts.length ? ' ' + counts.join(' · ') : ''}${failures.length ? ' Pendientes: ' + failures.join(' · ') : ''}`;
   }
   async function prepareTeacher(docenteId, context, expectedToken = '') {
@@ -49,6 +49,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
     const name = catalog.data()?.docentes?.[docenteId];
     if (!catalog.exists() || !name) throw Error('Este docente ya no está habilitado. Revisa la configuración.');
     const candidates = previousFichas.docs.filter(snapshot => snapshot.data().docenteId === docenteId && !snapshot.data().revocada);
+    const previousChildren = new Map(await Promise.all(candidates.map(async snapshot => [snapshot.id, await getDocsFromServer(collection(snapshot.ref, "presentaciones"))])));
     const newToken = randomToken();
     const prepared = await runTransaction(db, async tx => {
       const [currentCatalog, canonical, reservation, ...currentRows] = await Promise.all([
@@ -64,6 +65,15 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
       const currentFicha = await tx.get(fichaRef);
       const created = !currentFicha.exists();
       const original = currentFicha.data();
+      let added=[], pending=0;
+      let currentChildren=[];
+      if(!created){
+        const previous=candidates.find(snapshot=>snapshot.id===token);
+        const children=previousChildren.get(token);
+        if(!previous || !children || previous.data().revision!==original.revision) throw Error('La docente actualizó su ficha. Vuelve a preparar para incorporar los cambios.');
+        currentChildren=await Promise.all(children.docs.map(snapshot=>tx.get(snapshot.ref)));
+        if(currentChildren.some(snapshot=>!snapshot.exists()) || currentChildren.length!==original.cantidadPresentaciones) throw Error('Las presentaciones cambiaron. Vuelve a preparar la ficha.');
+      }
       if (created && (reservation.exists() || candidates.length)) throw Error('La reserva apunta a una ficha que no está disponible. Recupera su enlace desde la revisión.');
       if (!created && (original.revocada !== false || original.eventoId !== context.id || original.docenteId !== docenteId)) throw Error('La reserva no corresponde a una ficha vigente de este docente. Revisa su enlace.');
       if (!created && original.docenteNombre !== name) throw Error('El nombre habilitado difiere del nombre original de la ficha. Reutiliza el registro y la grafía de la ficha existente en la configuración antes de compartir su enlace.');
@@ -74,19 +84,27 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
         const { presentaciones, ...fields } = preload.normalized;
         tx.set(fichaRef, { ...fields, revision: 1, cantidadPresentaciones: presentaciones.length, estudiantesPrecargados: preload.estudiantesPrecargados, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), revocada: false, reabiertaHasta: null, comentarioCoordinacion: '' });
         presentaciones.forEach(({ id, ...presentation }) => tx.set(doc(fichaRef, 'presentaciones', id), { ...presentation, revision: 1, updatedAt: serverTimestamp() }));
-      } else tx.update(fichaRef, { estudiantesPrecargados: preload.estudiantesPrecargados, updatedAt: serverTimestamp() });
+      } else {
+        const plan=planMissingPresentations(preload.estudiantesPrecargados,currentChildren.map(snapshot=>({id:snapshot.id,...snapshot.data()})),original.estudiantesPrecargados || []);
+        added=original.estado==='Confirmado'?[]:plan.additions;
+        pending=plan.pending+(original.estado==='Confirmado'?plan.additions.length:0);
+        const revision=original.revision+(added.length?1:0);
+        for(const {id,...presentation} of added) tx.set(doc(fichaRef,'presentaciones',id),{...presentation,revision,updatedAt:serverTimestamp()});
+        tx.update(fichaRef, { estudiantesPrecargados: preload.estudiantesPrecargados, ...(added.length?{revision,cantidadPresentaciones:currentChildren.length+added.length,...(original.estado==='Enviado'?{estado:'Requiere ajustes'}:{})}:{}), updatedAt: serverTimestamp() });
+      }
       if (!reservation.exists()) tx.set(reserveRef, { fichaToken: token, createdAt: serverTimestamp() });
       const marked = Array.isArray(currentCatalog.data().fichasPrivadasPreparadas) ? currentCatalog.data().fichasPrivadasPreparadas.filter(id => currentCatalog.data().docentes?.[id]) : [];
       tx.update(catalogRef, { fichasPrivadasPreparadas: [...new Set([...marked, docenteId])], updatedAt: serverTimestamp(), updatedBy: context.email });
-      return { token, name, created, ...preload };
+      return { token, name, created, added, pending, ...preload };
     });
     const fichaRef = doc(db, 'fichasDocentes', prepared.token);
     const [savedFicha, savedReservation, savedCatalog, savedChildren] = await Promise.all([
       getDocFromServer(fichaRef), getDocFromServer(reserveRef), getDocFromServer(catalogRef),
-      prepared.created ? getDocsFromServer(collection(fichaRef, 'presentaciones')) : Promise.resolve(null)
+      getDocsFromServer(collection(fichaRef, 'presentaciones'))
     ]);
     const stored = savedFicha.data();
     if (!savedFicha.exists() || stored.revocada || stored.eventoId !== context.id || stored.docenteId !== docenteId || stored.docenteNombre !== prepared.name || savedReservation.data()?.fichaToken !== prepared.token || !samePreload(stored.estudiantesPrecargados, prepared.estudiantesPrecargados) || savedCatalog.data()?.docentes?.[docenteId] !== prepared.name || !savedCatalog.data()?.fichasPrivadasPreparadas?.includes(docenteId)) throw Error('La ficha se guardó, pero no pude verificar su enlace y listado completo. Vuelve a preparar el enlace antes de compartirlo.');
+    if (!prepared.created && prepared.added.some(({id,...presentation})=>{const child=savedChildren.docs.find(snapshot=>snapshot.id===id);if(!child)return true;const {revision,updatedAt,...data}=child.data();return !samePreload(data,presentation);})) throw Error('No pude verificar las presentaciones nuevas. Vuelve a preparar la ficha.');
     if (prepared.created && (stored.revision !== 1 || stored.cantidadPresentaciones !== prepared.seeded || savedChildren.docs.length !== prepared.seeded || prepared.normalized.presentaciones.some(({ id, ...presentation }) => {
       const child = savedChildren.docs.find(snapshot => snapshot.id === id)?.data();
       return !child || child.revision !== 1 || Object.entries(presentation).some(([key, value]) => child[key] !== value);
