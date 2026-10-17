@@ -2183,6 +2183,11 @@ function openChildDialog(tab, row = null) {
     const data = {};
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "actividades") data.estado = normalizeActivityState(data.estado);
+    if (tab === "equipo") {
+      if (Boolean(data.horarioDesde) !== Boolean(data.horarioHasta)) { toast('Elige la hora de inicio y la hora de fin del horario de apoyo.'); return; }
+      if (data.horarioDesde && data.horarioDesde === data.horarioHasta) { toast('La hora de salida debe ser diferente de la hora de llegada.'); return; }
+      data.horario = data.horarioDesde ? `De ${data.horarioDesde} a ${data.horarioHasta}${data.horarioHasta < data.horarioDesde ? ' (día siguiente)' : ''}` : (row?.horarioDesde ? '' : row?.horario || '');
+    }
     if (tab === 'programacion') {
       if (!getMomentPreset(data.tipoMomento) && data.tipoMomento !== 'personalizado') { toast('Elige el tipo de momento.'); return; }
       data.item = data.item || getMomentPreset(data.tipoMomento)?.label || '';
@@ -2542,7 +2547,7 @@ function childForm(tab, row = {}) {
       <label>Rol / función<input required name="rol" list="rolesEquipo" value="${escapeHtml(row.rol || "")}" placeholder="Elige o escribe una función" /><span class="field-hint">Puedes elegir una sugerencia o escribir otra función.</span></label>
       <datalist id="rolesEquipo">${[...new Map(["Coordinación", "Producción", "Presentación / maestro de ceremonias", "Sonido", "Iluminación", "Apoyo en escenario", "Montaje y desmontaje", "Recepción", "Registro y asistencia", "Acompañamiento de estudiantes", "Apoyo docente", "Fotografía y video", "Logística", ...state.personas.map(person => person.rol), ...state.childData.equipo.map(person => person.rol)].filter(Boolean).map(role => [normalizarNombre(role), role])).values()].map(role => `<option value="${escapeHtml(role)}"></option>`).join("")}</datalist>
       <label>Zona / bloque<input name="zona" value="${escapeHtml(row.zona || "")}" /></label>
-      <label>Horario<input name="horario" value="${escapeHtml(row.horario || "")}" /></label>
+      <fieldset class="wide form-section"><legend>Horario de apoyo</legend><div class="form-grid"><label>Desde<input type="time" name="horarioDesde" value="${escapeHtml(row.horarioDesde || "")}" /></label><label>Hasta<input type="time" name="horarioHasta" value="${escapeHtml(row.horarioHasta || "")}" /></label></div><p class="field-hint">Elige la hora de llegada y la hora de salida. Por ejemplo: de 17:30 a 20:00. Si termina antes de la hora de inicio, se considera el día siguiente.</p>${!row.horarioDesde && row.horario ? `<p class="field-hint">Horario anterior: ${escapeHtml(row.horario)}. Se conserva hasta que elijas una franja.</p>` : ""}</fieldset>
       <label>Contacto<input name="contacto" value="${escapeHtml(row.contacto || "")}" /></label>
       <label>Confirmación<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
     </div>`;
