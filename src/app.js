@@ -163,6 +163,7 @@ const STATUS_CLASS = {
   "Archivado": "neutral",
   "Pendiente": "neutral",
   "Confirmado": "success",
+  "No disponible": "danger",
   "Cancelado": "danger",
   "Bloqueado": "danger",
   "Bloqueada": "danger",
@@ -284,8 +285,15 @@ const KANBAN_COLUMNS = [
 
 // Pestañas que tienen estado y por tanto se pueden ver como tablero.
 const KANBAN_TABS = ["actividades", "muestras", "equipo", "rider", "checklist", "documentos"];
-const boardColumns = tab => tab === "actividades" ? ACTIVITY_COLUMNS : KANBAN_COLUMNS;
-const boardState = (tab, value) => tab === "actividades" ? normalizeActivityState(value) : value || "";
+const TEAM_STATES = ["Pendiente", "Confirmado", "No disponible"];
+function normalizeTeamState(value) {
+  if (["Listo", "Realizado", "Confirmado"].includes(value)) return "Confirmado";
+  if (["Cancelado", "Cancelada", "No disponible"].includes(value)) return "No disponible";
+  return "Pendiente";
+}
+const TEAM_COLUMNS = TEAM_STATES.map(estado => ({ id: estado, nombre: estado === "Pendiente" ? "Pendiente de confirmar" : estado, estado, estados: [estado] }));
+const boardColumns = tab => tab === "actividades" ? ACTIVITY_COLUMNS : tab === "equipo" ? TEAM_COLUMNS : KANBAN_COLUMNS;
+const boardState = (tab, value) => tab === "actividades" ? normalizeActivityState(value) : tab === "equipo" ? normalizeTeamState(value) : value || "";
 
 // Campo que hace de título en cada tipo de registro.
 const TITULO_CAMPO = {
@@ -1555,7 +1563,7 @@ function renderTabContent(tab) {
   if (tab === "equipo") {
     return table(["Persona", "Rol", "Zona / bloque", "Horario", "Contacto", "Confirmación", ""], rows.map(row => [
       escapeHtml(row.nombre || ""), escapeHtml(row.rol || ""), escapeHtml(row.zona || ""),
-      escapeHtml(row.horario || ""), escapeHtml(row.contacto || ""), badge(row.estado), rowActions(tab, row.id)
+      escapeHtml(row.horario || ""), escapeHtml(row.contacto || ""), badge(normalizeTeamState(row.estado)), rowActions(tab, row.id)
     ]));
   }
 
@@ -2184,6 +2192,7 @@ function openChildDialog(tab, row = null) {
     [...formData.entries()].forEach(([key, value]) => data[key] = typeof value === "string" ? value.trim() : value);
     if (tab === "actividades") data.estado = normalizeActivityState(data.estado);
     if (tab === "equipo") {
+      data.estado = normalizeTeamState(data.estado);
       if (Boolean(data.horarioDesde) !== Boolean(data.horarioHasta)) { toast('Elige la hora de inicio y la hora de fin del horario de apoyo.'); return; }
       if (data.horarioDesde && data.horarioDesde === data.horarioHasta) { toast('La hora de salida debe ser diferente de la hora de llegada.'); return; }
       data.horario = data.horarioDesde ? `De ${data.horarioDesde} a ${data.horarioHasta}${data.horarioHasta < data.horarioDesde ? ' (día siguiente)' : ''}` : (row?.horarioDesde ? '' : row?.horario || '');
@@ -2549,7 +2558,7 @@ function childForm(tab, row = {}) {
       <label>Zona / bloque<input name="zona" value="${escapeHtml(row.zona || "")}" /></label>
       <fieldset class="wide form-section"><legend>Horario de apoyo</legend><div class="form-grid"><label>Desde<input type="time" name="horarioDesde" value="${escapeHtml(row.horarioDesde || "")}" /></label><label>Hasta<input type="time" name="horarioHasta" value="${escapeHtml(row.horarioHasta || "")}" /></label></div><p class="field-hint">Elige la hora de llegada y la hora de salida. Por ejemplo: de 17:30 a 20:00. Si termina antes de la hora de inicio, se considera el día siguiente.</p>${!row.horarioDesde && row.horario ? `<p class="field-hint">Horario anterior: ${escapeHtml(row.horario)}. Se conserva hasta que elijas una franja.</p>` : ""}</fieldset>
       <label>Contacto<input name="contacto" value="${escapeHtml(row.contacto || "")}" /></label>
-      <label>Confirmación<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
+      <label>Confirmación<select name="estado">${selectOptions(TEAM_STATES, normalizeTeamState(row.estado))}</select><span class="field-hint">Pendiente: falta confirmar su apoyo. Confirmado: cuenta con su participación. No disponible: no podrá apoyar.</span></label>
     </div>`;
   }
 
