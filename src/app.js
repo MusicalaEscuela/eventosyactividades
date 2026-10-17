@@ -1,3 +1,4 @@
+import { createStagePlots } from './stage-plots.js?v=20261016-stage';
 import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261014-ensambles";
@@ -139,6 +140,25 @@ function reusableEventContext() {
 const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
 const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, teacherCandidates: docentesYaUsados, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
+
+const stagePlots = createStagePlots({
+  context: () => ({event:state.selectedEvent, presentations:eventPresentations(), participants:state.childData.muestras}),
+  toast,
+  save: async (eventId, presentationId, data, base) => {
+    const ref = doc(db, COLLECTION, eventId);
+    const stable = value => JSON.stringify(value, function(key, item) { return item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(k=>[k,item[k]])) : item; });
+    await runTransaction(db, async tx => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists()) throw new Error('stage-conflict');
+      const current = snapshot.data().stagePlots || {};
+      if (stable(current[presentationId] || null) !== stable(base)) throw new Error('stage-conflict');
+      const plots = {...current,[presentationId]:data};
+      if (new TextEncoder().encode(JSON.stringify(plots)).length > 600000) throw new Error('stage-size');
+      tx.update(ref, { stagePlots:plots, updatedAt:serverTimestamp(), updatedBy:state.user.email });
+    });
+    if (state.selectedEventId === eventId) state.selectedEvent.stagePlots = {...state.selectedEvent.stagePlots,[presentationId]:data};
+  }
+});
 const COLLECTION = "eventos";
 const CHILD_COLLECTIONS = ["actividades", "muestras", "programacion", "equipo", "rider", "checklist", "documentos", "bitacora"];
 const ACTIVIDADES_COMUNES_VERSION = 1;
@@ -1366,6 +1386,7 @@ function renderDetail() {
   }));
   attachBoardDragAndDrop();
   teacherAdmin.mount($("#teacherAdminPanel"), evento);
+  if (state.tab === "rider") stagePlots.mount($("#stagePlotsPanel"));
 }
 
 /** Arrastrar tarjetas entre columnas para cambiar el estado. */
@@ -1479,6 +1500,7 @@ async function moveCard(tab, id, columnaId) {
 }
 
 function renderTabContent(tab) {
+  if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
   const rows = state.childData[tab] || [];
   if (!rows.length) {
     return `<div class="empty-state"><h3>Sin registros</h3><p>Agrega el primer registro para que esto deje de ser una intención bonita flotando en el vacío.</p></div>`;
@@ -1567,13 +1589,7 @@ function renderTabContent(tab) {
     ]));
   }
 
-  if (tab === "rider") {
-    return table(["Elemento", "Categoría", "Cantidad", "Quién lo aporta", "Ubicación", "Estado", "Notas", ""], rows.map(row => [
-      escapeHtml(row.elemento || ""), escapeHtml(row.categoria || ""), escapeHtml(row.cantidad || ""),
-      escapeHtml(row.proveedor || ""), escapeHtml(row.ubicacion || ""), badge(row.estado),
-      escapeHtml(row.notas || ""), rowActions(tab, row.id)
-    ]));
-  }
+
 
   return table(["Fecha", "Tipo", "Comentario", "Creado por", ""], rows.map(row => [
     row.createdAt?.toDate ? row.createdAt.toDate().toLocaleString("es-CO") : "",
@@ -3418,3 +3434,14 @@ onAuthStateChanged(auth, user => {
 
 attachGlobalEvents();
 renderKpis();
+
+function renderRiderRecords() {
+  const tab="rider", rows=state.childData.rider || [];
+  if (!rows.length) return `<p class="muted">Aún no hay necesidades generales. Usa + Agregar para registrar proveedores, disponibilidad y otros recursos.</p>`;
+  if (state.vista === "tablero") return renderKanban(tab);
+    return table(["Elemento", "Categoría", "Cantidad", "Quién lo aporta", "Ubicación", "Estado", "Notas", ""], rows.map(row => [
+      escapeHtml(row.elemento || ""), escapeHtml(row.categoria || ""), escapeHtml(row.cantidad || ""),
+      escapeHtml(row.proveedor || ""), escapeHtml(row.ubicacion || ""), badge(row.estado),
+      escapeHtml(row.notas || ""), rowActions(tab, row.id)
+    ]));
+}
