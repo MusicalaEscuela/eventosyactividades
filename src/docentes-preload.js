@@ -1,4 +1,6 @@
-import { MAX_PRESENTACIONES, validateFichaInput } from './docentes-data.js';
+import { getWorkMinutes } from './obras-duracion.js?v=20261016-tiempo-por-obra';
+import { buildEnsembleParticipationIndex, getEffectiveParticipantWorks, getEnsemblesForParticipantWork } from './ensambles-model.js?v=20261016-tiempo-por-obra';
+import { MAX_PRESENTACIONES, validateFichaInput } from './docentes-data.js?v=20261017-integracion';
 import { normalizarNombre } from './docentes-model.js';
 
 const texto = value => typeof value === 'string' ? value : '';
@@ -13,7 +15,7 @@ function instruccionesRegistradas(row, docenteId, docenteNombre) {
   return primary && typeof primary === 'object' && normalizarNombre(primary.docente) === normalizarNombre(docenteNombre) ? primary : {};
 }
 
-function presentationFromInscription(row, docenteId, docenteNombre) {
+function presentationFromInscription(row, docenteId, docenteNombre, index) {
   const instructions = instruccionesRegistradas(row, docenteId, docenteNombre);
   const area = row.areaArtisticaId || row.areaArtisticaNombre || row.area || 'musica';
   const areaArtisticaId = areas.get(normalizarNombre(area));
@@ -24,7 +26,13 @@ function presentationFromInscription(row, docenteId, docenteNombre) {
   const integrantesTexto = (Array.isArray(row.integrantes) ? row.integrantes.map(member => typeof member === 'string' ? member : texto(member?.nombre)).filter(Boolean).join('\n') : '') || texto(row.integrantesTexto);
   const duration = typeof row.duracionMin === 'string' ? row.duracionMin.replace(',', '.') : row.duracionMin;
   const title = areaArtisticaId === 'artes-plasticas' ? texto(row.tituloObra) : ['danza', 'teatro'].includes(areaArtisticaId) ? texto(row.nombrePresentacion) : '';
+  const effectiveWorks=getEffectiveParticipantWorks(row,index);
+  const obrasJson=JSON.stringify(effectiveWorks.map(obra=>{
+    const groups=ensemble?[]:getEnsemblesForParticipantWork(row,obra,index);
+    return {obra,minutos:groups.length===1?getWorkMinutes(groups[0],obra):getWorkMinutes(row,obra),...(groups.length?{compartida:true,ensambleId:groups.length===1?groups[0].id:''}:{})};
+  }));
   return {
+    obrasJson, inscripcionId: texto(row.id).length<=100?texto(row.id):'',
     tipo: ensemble ? 'Ensamble' : 'Individual', areaArtisticaId,
     estudianteGrupo: texto(row.estudianteGrupo), integrantesTexto,
     instrumento: texto(row.instrumento),
@@ -37,11 +45,12 @@ function presentationFromInscription(row, docenteId, docenteNombre) {
 
 /** Only names assigned in this event determine the roster; no student directory is queried. */
 export function buildTeacherPreload({ eventoId, docenteId, docenteNombre, participants = [], initialize = true }) {
+  const index=buildEnsembleParticipationIndex(participants);
   const rows = participants.filter(row => normalizarNombre(row.docente) === normalizarNombre(docenteNombre));
   const estudiantesPrecargados = rows.map((row, index) => {
     let normalized;
     try {
-      normalized = validateFichaInput({ eventoId, docenteId, docenteNombre, estado: 'Borrador', presentaciones: [presentationFromInscription(row, docenteId, docenteNombre)] }).presentaciones[0];
+      normalized = validateFichaInput({ eventoId, docenteId, docenteNombre, estado: 'Borrador', presentaciones: [presentationFromInscription(row, docenteId, docenteNombre, index)] }).presentaciones[0];
     } catch (error) { throw Error(`${row.estudianteGrupo || `Inscripción ${index + 1}`}: ${error.message}`); }
     const { id, ...presentation } = normalized;
     const integrantesDetalle = Array.isArray(row.integrantes) ? row.integrantes.map(member => ({
@@ -76,23 +85,36 @@ export function samePreload(left, right) {
 /** Append only missing entries; ambiguous matches remain available in the roster. */
 export function planMissingPresentations(roster, existing, previousRoster = []) {
   const identity = row => ['tipo','areaArtisticaId','estudianteGrupo'].map(key=>normalizarNombre(row[key])).join('|');
-  const used = new Set(), additions = [];
+  const used = new Set(), additions = [], updates=[];
   let pending = 0;
   const ids = new Set(existing.map(row=>row.id));
   for (const source of roster) {
     const old = source.inscripcionId ? previousRoster.find(row=>row.inscripcionId===source.inscripcionId) : null;
-    let match = existing.find(row=>!used.has(row.id) && (preloadMatchesPresentation(source,row) || old && preloadMatchesPresentation(old,row)));
+    let match = existing.find(row=>!used.has(row.id) && (row.inscripcionId && row.inscripcionId===source.inscripcionId || preloadMatchesPresentation(source,row) || old && preloadMatchesPresentation(old,row)));
     if (!match) {
       const sameIdentity = existing.filter(row=>!used.has(row.id) && identity(row)===identity(source));
       if (sameIdentity.length===1 && roster.filter(row=>identity(row)===identity(source)).length===1) match=sameIdentity[0];
       else if (sameIdentity.length) { pending++; continue; }
     }
-    if (match) { used.add(match.id); continue; }
+    if (match) {
+      used.add(match.id);
+      const changes={};
+      for(const field of ['instrumento','repertorio','duracionMin','cantidadObras','recursos','integrantesTexto','obrasJson',...camposPresentacion]){
+        const empty=match[field]==null||match[field]===''||field==='duracionMin'&&Number(match[field])===0;
+        const unchanged=old&&samePreload(match[field],old[field]);
+        if(source[field]!==undefined&&(empty||unchanged)&&!samePreload(match[field],source[field]))changes[field]=source[field];
+      }
+      // Upgrade legacy work lists only if their text has not been edited by the teacher.
+      if(!match.obrasJson && source.obrasJson && (!match.repertorio || match.repertorio===source.repertorio || old&&match.repertorio===old.repertorio))changes.obrasJson=source.obrasJson;
+      if(!match.inscripcionId&&source.inscripcionId)changes.inscripcionId=source.inscripcionId;
+      if(Object.keys(changes).length)updates.push({id:match.id,changes});
+      continue;
+    }
     if (existing.length+additions.length>=MAX_PRESENTACIONES) { pending++; continue; }
     let number=1;while(ids.has(`p${String(number).padStart(2,'0')}`))number++;
     const id=`p${String(number).padStart(2,'0')}`;ids.add(id);
-    const {inscripcionId,integrantesDetalle,...presentation}=source;
+    const {integrantesDetalle,...presentation}=source;
     additions.push({id,...presentation});
   }
-  return {additions,pending};
+  return {additions,pending,updates};
 }

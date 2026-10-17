@@ -1,3 +1,5 @@
+import { teacherWorks, normalizeTeacherWorks } from './docentes-obras.js?v=20261017-integracion';
+import { workDurationReference } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 export const normalizarNombre = value => String(value || '').trim().toLocaleLowerCase('es-CO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 
 export function nombresPresentacion(row) {
@@ -27,6 +29,7 @@ export function validarFichaParaConfirmar(ficha, presentaciones) {
   if (!presentaciones.length || presentaciones.length !== ficha.cantidadPresentaciones || presentaciones.length > 20) errors.push('La ficha no tiene todas sus presentaciones guardadas.');
   const vistos = new Set();
   for (const row of presentaciones) {
+    try{normalizeTeacherWorks(row,true);}catch(error){errors.push(error.message);}
     if (!['Individual', 'Ensamble'].includes(row.tipo) || !['musica', 'danza', 'teatro', 'artes-plasticas'].includes(row.areaArtisticaId)) errors.push('Revisa el tipo y el área de cada presentación.');
     const nombres = nombresPresentacion(row);
     const normalizados = nombres.map(normalizarNombre);
@@ -53,6 +56,14 @@ export function muestraDesdeFicha(ficha, propuesta, estudiantes = []) {
   const buscarId = nombre => { const ids = [...new Set(estudiantes.filter(s => normalizarNombre(s.nombre) === normalizarNombre(nombre)).map(s => s.studentId).filter(Boolean))]; return ids.length === 1 ? ids[0] : ''; };
   const ensemble = propuesta.tipo === 'Ensamble';
   const row = { estudianteGrupo: propuesta.estudianteGrupo.trim(), studentId: ensemble ? '' : buscarId(propuesta.estudianteGrupo), esEnsamble: ensemble, areaArtisticaId: propuesta.areaArtisticaId, instrumento: propuesta.instrumento || '', docente: ficha.docenteNombre, repertorio: propuesta.repertorio.trim(), repertorios: [propuesta.repertorio.trim()], duracionMin: Number(propuesta.duracionMin), recursos: propuesta.recursos || '', estado: 'Pendiente', prioridad: 'Media', genero: 'Sin definir', fichaDocente: instruccionesDocentes(ficha, propuesta) };
+  if(propuesta.obrasJson){
+    const works=teacherWorks(propuesta).filter(w=>w.obra);
+    row.repertorios=works.map(w=>w.obra);row.repertorio=row.repertorios.join(' / ');
+    row.duracionPorObra=true;row.duracionesObras=works.map(w=>({obra:w.obra,minutos:w.minutos}));
+    row.duracionMin=works.some(w=>w.minutos===null)?null:works.reduce((sum,w)=>sum+w.minutos,0);
+    row.duracionObrasReferencia=workDurationReference(row);
+  }
+  row.recursosSeleccionados=String(propuesta.recursos||'').split(/[,\n]/).map(v=>v.trim()).filter(Boolean);
   if (ensemble) row.integrantes = nombresPresentacion(propuesta).map(nombre => ({ nombre, studentId: buscarId(nombre) }));
   if (['danza', 'teatro'].includes(row.areaArtisticaId)) row.nombrePresentacion = row.repertorio;
   if (row.areaArtisticaId === 'artes-plasticas') { row.tituloObra = row.repertorio; row.cantidadObras = propuesta.cantidadObras; row.expuesta = false; }

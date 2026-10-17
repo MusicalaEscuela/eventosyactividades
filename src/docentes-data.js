@@ -1,3 +1,4 @@
+import { normalizeTeacherWorks } from './docentes-obras.js?v=20261017-integracion';
 import {
   firebaseConfig, initializeApp, getFirestore,
   collection, doc, getDocFromServer, getDocsFromServer,
@@ -58,7 +59,8 @@ export function validateFichaInput(input) {
   if (!Array.isArray(input.presentaciones) || input.presentaciones.length > MAX_PRESENTACIONES) {
     throw error('validacion', `La ficha admite hasta ${MAX_PRESENTACIONES} presentaciones.`);
   }
-  const presentaciones = input.presentaciones.map((p, i) => {
+  const presentaciones = input.presentaciones.map((inputPresentation, i) => {
+    const p=normalizeTeacherWorks(inputPresentation,estado==='Enviado');
     const tipo = p.tipo || 'Individual';
     const areaArtisticaId = p.areaArtisticaId || 'musica';
     if (!['Individual', 'Ensamble'].includes(tipo) || !AREAS.includes(areaArtisticaId)) {
@@ -72,7 +74,9 @@ export function validateFichaInput(input) {
     if (!Number.isInteger(cantidadObras) || cantidadObras < 1 || cantidadObras > 20) {
       throw error('validacion', `Presentación ${i + 1}: la cantidad de obras debe estar entre 1 y 20.`);
     }
-    const normalized = { id: `p${String(i + 1).padStart(2, '0')}`, tipo, areaArtisticaId, duracionMin, cantidadObras };
+    const extra = {obrasJson:textField(p.obrasJson,6000,'Obras'),inscripcionId:textField(p.inscripcionId,100,'Inscripción')};
+    if(extra.inscripcionId && !ID_RE.test(extra.inscripcionId))throw error('validacion','La inscripción de origen no es válida.');
+    const normalized = { ...extra, id: `p${String(i + 1).padStart(2, '0')}`, tipo, areaArtisticaId, duracionMin, cantidadObras };
     for (const [key, limit] of Object.entries(PRESENTACION_LIMITES)) {
       normalized[key] = textField(p[key], limit, `Presentación ${i + 1}`);
     }

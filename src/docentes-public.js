@@ -1,14 +1,15 @@
+import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
 import {
   listConvocatorias, getConvocatoria, loadFicha, saveFicha, fichaUrl,
   canEditFicha, validateFichaInput, PRESENTACION_LIMITES
-} from './docentes-data.js';
-import { normalizarNombre } from './docentes-model.js';
+} from './docentes-data.js?v=20261017-integracion';
+import { normalizarNombre } from './docentes-model.js?v=20261017-integracion';
 
 const app = document.getElementById('docentesApp');
 const storageKey = 'musicala.eventos.fichas-docentes.v1';
 const state = { convocatorias: [], convocatoria: null, ficha: null, token: null, revision: 0, busy: false, dirty: false, pendingRecovery: false, presentations: [], localLinks: readLocalLinks() };
 const areas = [['musica', 'Música'], ['danza', 'Danza'], ['teatro', 'Teatro'], ['artes-plasticas', 'Artes plásticas']];
-const blankPresentation = () => ({ tipo: 'Individual', estudianteGrupo: '', integrantesTexto: '', areaArtisticaId: 'musica', instrumento: '', repertorio: '', duracionMin: '', cantidadObras: 1, recursos: '', materialUrl: '', preparacion: '', entrada: '', inicio: '', acompanamiento: '', cierre: '', observaciones: '' });
+const blankPresentation = () => ({ obrasJson:'', inscripcionId:'', tipo: 'Individual', estudianteGrupo: '', integrantesTexto: '', areaArtisticaId: 'musica', instrumento: '', repertorio: '', duracionMin: '', cantidadObras: 1, recursos: '', materialUrl: '', preparacion: '', entrada: '', inicio: '', acompanamiento: '', cierre: '', observaciones: '' });
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const option = (value, label, selected) => `<option value="${esc(value)}"${String(selected) === String(value) ? ' selected' : ''}>${esc(label)}</option>`;
 const timestampDate = value => value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00-05:00`) : value ? new Date(value) : null;
@@ -195,6 +196,16 @@ function presentationSummary(data) {
   return [work || 'Obra por completar', duration].filter(Boolean).join(' · ');
 }
 
+function teacherWorkHtml(work={obra:'',minutos:null}) {
+  return `<div data-teacher-work data-shared="${work.compartida?'1':''}" data-ensemble="${esc(work.ensambleId||'')}" style="display:grid;grid-template-columns:minmax(0,1fr) 110px auto;gap:8px;margin:10px 0"><label>Obra / actividad<input name="obraTitulo" maxlength="180" value="${esc(work.obra)}" ${work.compartida?'readonly':''} /></label><label>Minutos<input name="obraMinutos" type="number" min="0" max="120" step="any" value="${esc(work.minutos??'')}" ${work.compartida?'readonly':''} placeholder="Por definir" /></label><button type="button" data-remove-work ${work.compartida?'disabled':''}>Quitar</button>${work.compartida?'<small style="grid-column:1/-1">Tiempo compartido: se completa en la presentación del ensamble y se cuenta una sola vez.</small>':''}</div>`;
+}
+function syncTeacherWorks(container){
+  const values=[...container.querySelectorAll('[data-teacher-work]')].map(item=>({obra:item.querySelector('[name="obraTitulo"]').value.trim(),minutos:item.querySelector('[name="obraMinutos"]').value===''?null:Number(item.querySelector('[name="obraMinutos"]').value),...(item.dataset.shared?{compartida:true,ensambleId:item.dataset.ensemble||''}:{})}));
+  container.querySelector('[name="obrasJson"]').value=JSON.stringify(values);
+  container.querySelector('[name="repertorio"]').value=values.filter(w=>w.obra).map(w=>w.obra).join(' / ');
+  container.querySelector('[name="duracionMin"]').value=values.reduce((sum,w)=>sum+(w.minutos||0),0);
+  container.querySelector('[data-work-total]').textContent='Total de las obras: '+values.reduce((sum,w)=>sum+(w.minutos||0),0)+' min';
+}
 function presentationHtml(data, index) {
   const absent = document.getElementById('teacherForm')?.elements.asistencia?.value === 'No' || (!document.getElementById('teacherForm') && state.ficha?.asistencia === 'No');
   const hasStudent = Boolean(String(data.estudianteGrupo || '').trim());
@@ -207,8 +218,8 @@ function presentationHtml(data, index) {
     <div class="docentes-presentation-body">
       <div class="docentes-grid">
         ${field('Estudiante o nombre del ensamble', 'estudianteGrupo', data.estudianteGrupo, { max: 240, wide: true, placeholder: 'Nombre completo o nombre del grupo' })}
-        ${field('Obra, repertorio o actividad', 'repertorio', data.repertorio, { textarea: true, max: 2000, wide: true, placeholder: 'Incluye las obras, su orden y la versión que se presentará.' })}
-        ${field('Duración estimada en minutos', 'duracionMin', data.duracionMin, { type: 'number', attrs: 'min="0" max="120" step="0.5"', help: 'Máximo 120 minutos. En artes plásticas es opcional.' })}
+        <input type="hidden" name="inscripcionId" value="${esc(data.inscripcionId||source?.inscripcionId||'')}" /><input type="hidden" name="obrasJson" value="${esc(data.obrasJson||'')}" /><input type="hidden" name="repertorio" value="${esc(data.repertorio||'')}" /><input type="hidden" name="duracionMin" value="${esc(data.duracionMin||0)}" />
+        <div class="docentes-wide"><h4>Obras y minutos</h4><div data-teacher-works>${teacherWorks(data).map(teacherWorkHtml).join('')}</div><button type="button" class="btn btn-light" data-add-work>+ Agregar obra</button><p data-work-total class="docentes-help">Total de las obras: ${esc(data.duracionMin||0)} min</p><p class="docentes-help">Confirma lo registrado o completa lo que falta. En Artes plásticas los minutos son opcionales.</p></div>
         <label class="${data.areaArtisticaId === 'artes-plasticas' ? '' : 'hidden'}" data-artwork-label>Cantidad de obras a exhibir<input name="cantidadObras" type="number" min="1" max="20" step="1" value="${esc(data.cantidadObras || 1)}" /><small>Entre 1 y 20 obras.</small></label>
       </div>
       <details class="docentes-disclosure"><summary>Tipo, área, instrumento e integrantes</summary><div class="docentes-grid">
@@ -352,7 +363,7 @@ function revealValidationError(error) {
     });
     name = missing || (/duraci[oó]n/i.test(message) ? 'duracionMin' : name);
   }
-  const input = container.querySelector(`[name="${name}"]`);
+  const input = container.querySelector(`[name="${name}"]`)?.type==='hidden' ? container.querySelector(name==='duracionMin'?'[name="obraMinutos"]':'[name="obraTitulo"]') || container.querySelector('[name="estudianteGrupo"]') : container.querySelector(`[name="${name}"]`);
   for (let element = input.parentElement; element && element !== document.getElementById('teacherForm'); element = element.parentElement) {
     if (element.tagName === 'DETAILS') element.open = true;
   }
@@ -416,7 +427,8 @@ function setEditable(editable) {
 }
 
 function readPresentations() {
-  return [...app.querySelectorAll('[data-presentation]')].map(container => {
+  const rows = [...app.querySelectorAll('[data-presentation]')].map(container => {
+    syncTeacherWorks(container);
     const data = {};
     container.querySelectorAll('[name]').forEach(element => { if (!Object.hasOwn(blankPresentation(), element.name)) return; data[element.name] = ['duracionMin', 'cantidadObras'].includes(element.name) ? Number(element.value || (element.name === 'cantidadObras' ? 1 : 0)) : element.value.trim(); });
     const sourceIndex = container.dataset.rosterIndex;
@@ -425,6 +437,16 @@ function readPresentations() {
     if (data.areaArtisticaId !== 'artes-plasticas') data.cantidadObras = 1;
     return data;
   });
+  for(const row of rows){
+    const values=teacherWorks(row).map(work=>{
+      if(!work.compartida||!work.ensambleId)return work;
+      const owner=rows.find(other=>other.inscripcionId===work.ensambleId);
+      const original=owner?teacherWorks(owner).find(w=>normalizarNombre(w.obra)===normalizarNombre(work.obra)):null;
+      return original?{...work,minutos:original.minutos}:work;
+    });
+    row.obrasJson=JSON.stringify(values);row.duracionMin=values.reduce((sum,w)=>sum+(w.minutos||0),0);
+  }
+  return rows;
 }
 
 function readForm(estado) {
@@ -442,11 +464,19 @@ function markDirty() {
 
 function bindForm() {
   const form = document.getElementById('teacherForm');
+  form.addEventListener('click',event=>{
+    const add=event.target.closest('[data-add-work]'),remove=event.target.closest('[data-remove-work]');
+    if(!add&&!remove || state.busy || !canEditFicha(state.ficha,state.convocatoria))return;
+    const container=event.target.closest('[data-presentation]');
+    if(add){if(container.querySelectorAll('[data-teacher-work]').length>=20)return;container.querySelector('[data-teacher-works]').insertAdjacentHTML('beforeend',teacherWorkHtml());}
+    else {if(remove.closest('[data-teacher-work]').dataset.shared)return;remove.closest('[data-teacher-work]').remove();}
+    syncTeacherWorks(container);markDirty();updatePresentationSummary(container);
+  });
   form.addEventListener('input', event => {
     if (!event.target.name) return;
     markDirty();
     const presentation = event.target.closest('[data-presentation]');
-    if (presentation) updatePresentationSummary(presentation);
+    if (presentation) { syncTeacherWorks(presentation); updatePresentationSummary(presentation); }
   });
   form.addEventListener('change', event => {
     if (!event.target.name) return;

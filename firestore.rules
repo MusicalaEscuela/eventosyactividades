@@ -91,7 +91,9 @@ service cloud.firestore {
           'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt'])
         && data.keys().hasOnly(['tipo', 'estudianteGrupo', 'integrantesTexto', 'areaArtisticaId',
           'instrumento', 'repertorio', 'duracionMin', 'cantidadObras', 'recursos', 'materialUrl', 'preparacion',
-          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt'])
+          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt', 'obrasJson', 'inscripcionId'])
+        && (!('obrasJson' in data) || docenteText(data, 'obrasJson', 6000))
+        && (!('inscripcionId' in data) || docenteText(data, 'inscripcionId', 100) && (data.inscripcionId == '' || data.inscripcionId.matches('^[A-Za-z0-9_-]{1,100}$')))
         && data.tipo in ['Individual', 'Ensamble']
         && data.areaArtisticaId in ['musica', 'danza', 'teatro', 'artes-plasticas']
         && docenteText(data, 'estudianteGrupo', 180) && docenteText(data, 'integrantesTexto', 3000)
