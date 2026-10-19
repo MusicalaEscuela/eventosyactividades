@@ -249,8 +249,9 @@ service cloud.firestore {
     }
 
     function routeValid(data) {
-      return data.keys().size() == 12
-        && data.keys().hasOnly(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'eliminado'])
+        && data.get('eliminado', false) is bool
         && (data.studentId is string && data.studentId.size() <= 200) && data.studentId.size() > 0
         && (data.studentName is string && data.studentName.size() <= 240) && data.studentName.size() > 0
         && (data.nombre is string && data.nombre.size() <= 200) && data.nombre.size() > 0
@@ -272,7 +273,7 @@ service cloud.firestore {
         && request.resource.data.etapas.audio.estado == 'Pendiente' && request.resource.data.etapas.video.estado == 'Pendiente'
         && request.resource.data.etapas.recital.estado == 'Pendiente' && request.resource.data.etapas.grande.estado == 'Pendiente';
       allow update: if googleUser() && routeValid(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['etapas', 'cerrado', 'revision', 'updatedBy', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['etapas', 'cerrado', 'eliminado', 'revision', 'updatedBy', 'updatedAt'])
         && request.resource.data.revision == resource.data.revision + 1;
       allow delete: if false;
       match /historial/{cambioId} {
