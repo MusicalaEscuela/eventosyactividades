@@ -237,28 +237,28 @@ service cloud.firestore {
     // Una ruta por estudiante, área y proceso. Acceso exclusivo del equipo actual.
     function routeStageValid(stage) {
       return stage is map
-        && stage.keys().hasAll(['estado', 'fecha', 'docente', 'evidencia', 'notas', 'excepcion', 'eventoId'])
+        && stage.keys().size() == 7
         && stage.keys().hasOnly(['estado', 'fecha', 'docente', 'evidencia', 'notas', 'excepcion', 'eventoId'])
         && stage.estado in ['Pendiente', 'En preparación', 'Completada']
-        && docenteText(stage, 'fecha', 10) && (stage.fecha == '' || stage.fecha.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
-        && docenteText(stage, 'docente', 160) && docenteText(stage, 'evidencia', 1000)
+        && (stage.fecha is string && stage.fecha.size() <= 10) && (stage.fecha == '' || stage.fecha.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        && (stage.docente is string && stage.docente.size() <= 160) && (stage.evidencia is string && stage.evidencia.size() <= 1000)
         && (stage.evidencia == '' || stage.evidencia.matches('^https?://[^\\s]+$'))
-        && docenteText(stage, 'notas', 1500) && docenteText(stage, 'excepcion', 1000)
-        && docenteText(stage, 'eventoId', 200)
+        && (stage.notas is string && stage.notas.size() <= 1500) && (stage.excepcion is string && stage.excepcion.size() <= 1000)
+        && (stage.eventoId is string && stage.eventoId.size() <= 200)
         && (stage.estado != 'Completada' || stage.fecha.size() == 10 && stage.docente.size() > 0);
     }
 
     function routeValid(data) {
-      return data.keys().hasAll(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+      return data.keys().size() == 12
         && data.keys().hasOnly(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
-        && docenteText(data, 'studentId', 200) && data.studentId.size() > 0
-        && docenteText(data, 'studentName', 240) && data.studentName.size() > 0
-        && docenteText(data, 'nombre', 200) && data.nombre.size() > 0
+        && (data.studentId is string && data.studentId.size() <= 200) && data.studentId.size() > 0
+        && (data.studentName is string && data.studentName.size() <= 240) && data.studentName.size() > 0
+        && (data.nombre is string && data.nombre.size() <= 200) && data.nombre.size() > 0
         && data.areaId in ['musica', 'danza', 'teatro', 'artes-plasticas']
         && data.cerrado is bool && data.createdDate is string && data.createdDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && data.revision is int && data.revision >= 1 && data.createdAt is timestamp
         && data.updatedBy == request.auth.token.email && data.updatedAt == request.time
-        && data.etapas is map && data.etapas.keys().hasAll(['audio', 'video', 'recital', 'grande'])
+        && data.etapas is map && data.etapas.keys().size() == 4
         && data.etapas.keys().hasOnly(['audio', 'video', 'recital', 'grande'])
         && routeStageValid(data.etapas.audio) && routeStageValid(data.etapas.video)
         && routeStageValid(data.etapas.recital) && routeStageValid(data.etapas.grande);
