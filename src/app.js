@@ -1,4 +1,4 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta-4';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta-5';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
@@ -1314,7 +1314,6 @@ function calculateProgress() {
 function renderDetail() {
   if (state.vistaPrincipal !== "eventos") return;
   if (!state.selectedEvent) {
-    sampleRoutes.stop();
     teacherAdmin.stop();
     emptyState.classList.remove("hidden");
     eventDetail.classList.add("hidden");
@@ -3431,6 +3430,7 @@ onAuthStateChanged(auth, user => {
     listenParticipaciones();
     cargarRipSilencioso();
   } else {
+    sampleRoutes.stop();
     teacherAdmin.stop();
     annualSystem.stop();
     annualView.classList.add("hidden");
