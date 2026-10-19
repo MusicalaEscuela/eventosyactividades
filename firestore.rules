@@ -234,6 +234,61 @@ service cloud.firestore {
       }
     }
 
+    // Una ruta por estudiante, área y proceso. Acceso exclusivo del equipo actual.
+    function routeStageValid(stage) {
+      return stage is map
+        && stage.keys().hasAll(['estado', 'fecha', 'docente', 'evidencia', 'notas', 'excepcion', 'eventoId'])
+        && stage.keys().hasOnly(['estado', 'fecha', 'docente', 'evidencia', 'notas', 'excepcion', 'eventoId'])
+        && stage.estado in ['Pendiente', 'En preparación', 'Completada']
+        && docenteText(stage, 'fecha', 10) && (stage.fecha == '' || stage.fecha.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        && docenteText(stage, 'docente', 160) && docenteText(stage, 'evidencia', 1000)
+        && (stage.evidencia == '' || stage.evidencia.matches('^https?://[^\\s]+$'))
+        && docenteText(stage, 'notas', 1500) && docenteText(stage, 'excepcion', 1000)
+        && docenteText(stage, 'eventoId', 200)
+        && (stage.estado != 'Completada' || stage.fecha.size() == 10 && stage.docente.size() > 0);
+    }
+
+    function routeValid(data) {
+      return data.keys().hasAll(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['studentId', 'studentName', 'areaId', 'nombre', 'cerrado', 'createdDate', 'etapas', 'revision', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && docenteText(data, 'studentId', 200) && data.studentId.size() > 0
+        && docenteText(data, 'studentName', 240) && data.studentName.size() > 0
+        && docenteText(data, 'nombre', 200) && data.nombre.size() > 0
+        && data.areaId in ['musica', 'danza', 'teatro', 'artes-plasticas']
+        && data.cerrado is bool && data.createdDate is string && data.createdDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.revision is int && data.revision >= 1 && data.createdAt is timestamp
+        && data.updatedBy == request.auth.token.email && data.updatedAt == request.time
+        && data.etapas is map && data.etapas.keys().hasAll(['audio', 'video', 'recital', 'grande'])
+        && data.etapas.keys().hasOnly(['audio', 'video', 'recital', 'grande'])
+        && routeStageValid(data.etapas.audio) && routeStageValid(data.etapas.video)
+        && routeStageValid(data.etapas.recital) && routeStageValid(data.etapas.grande);
+    }
+
+    match /rutasMuestras/{procesoId} {
+      allow read: if googleUser();
+      allow create: if googleUser() && routeValid(request.resource.data)
+        && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.token.email && request.resource.data.cerrado == false
+        && request.resource.data.etapas.audio.estado == 'Pendiente' && request.resource.data.etapas.video.estado == 'Pendiente'
+        && request.resource.data.etapas.recital.estado == 'Pendiente' && request.resource.data.etapas.grande.estado == 'Pendiente';
+      allow update: if googleUser() && routeValid(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['etapas', 'cerrado', 'revision', 'updatedBy', 'updatedAt'])
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+      match /historial/{cambioId} {
+        allow read: if googleUser();
+        allow create: if googleUser()
+          && request.resource.data.keys().hasAll(['accion', 'etapa', 'anterior', 'nuevo', 'motivo', 'revision', 'usuario', 'at'])
+          && request.resource.data.keys().hasOnly(['accion', 'etapa', 'anterior', 'nuevo', 'motivo', 'revision', 'usuario', 'at'])
+          && docenteText(request.resource.data, 'accion', 100) && docenteText(request.resource.data, 'etapa', 20)
+          && docenteText(request.resource.data, 'anterior', 10000) && docenteText(request.resource.data, 'nuevo', 10000)
+          && docenteText(request.resource.data, 'motivo', 1000)
+          && request.resource.data.usuario == request.auth.token.email && request.resource.data.at == request.time
+          && request.resource.data.revision == getAfter(/databases/$(database)/documents/rutasMuestras/$(procesoId)).data.revision;
+        allow update, delete: if false;
+      }
+    }
+
     // Bases maestras: viven fuera de los eventos y se reutilizan en todos.
     match /lugares/{lugarId} {
       allow read, create, update: if googleUser();

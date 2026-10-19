@@ -1,3 +1,4 @@
+import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
@@ -144,6 +145,10 @@ const annualView = $("#annualView");
 const annualSystem = createAnnualSystem({root: annualView, user: () => state.user, toast, onChange: () => renderDetail(), events: () => state.eventos});
 const teacherAdmin = createTeacherAdmin({ user: () => state.user, people: () => state.personas, teacherCandidates: docentesYaUsados, students: () => state.ripEstudiantes, annual: annualSystem, setModal, modalForm, modal, toast });
 
+const sampleRoutes = createSampleRoutes({user:()=>state.user,students:()=>state.ripEstudiantes,participants:()=>[...state.participantesRegistrados,...state.childData.muestras],event:()=>state.selectedEvent,setModal,modalForm,modal,toast,onChange:()=>{
+  if(state.vistaPrincipal==='estudiantes')renderEstudiantes();else if(state.selectedEvent)renderDetail();
+  if(modal.open&&$('#pickerLista')&&state.picker){$('#pickerLista').innerHTML=renderPickerLista();actualizarPickerPie();}
+}});
 const scores = createScores({context:()=>({event:state.selectedEvent, presentations:eventPresentations(), rows:state.childData.partituras, user:state.user}),setModal,modalForm,modal,toast});
 const stagePlots = createStagePlots({
   context: () => ({event:state.selectedEvent, presentations:eventPresentations(), participants:state.childData.muestras}),
@@ -715,14 +720,15 @@ function renderEstudiantes() {
         </label>
       </div>
       <div class="table-panel">
-        ${filas.length ? table(["Estudiante", "Estado en RIP", "Última clase", "Veces", "Se presentó en"], filas.map(f => [
+        ${filas.length ? table(["Estudiante", "Estado en RIP", "Última clase", "Veces", "Se presentó en", "Ruta de muestras"], filas.map(f => [
           escapeHtml(f.nombre),
           `<span class="badge ${NIVEL_BADGE[f.nivel]}">${escapeHtml(f.etiqueta)}</span>`,
           escapeHtml(f.ultimaClase || "—"),
           f.vecesPresentado || `<span class="badge off">0</span>`,
           f.presentaciones.length
             ? f.presentaciones.map(p => `<span class="badge neutral">${escapeHtml(p.eventoTitulo)}${p.repertorio ? ` · ${escapeHtml(p.repertorio)}` : ""}</span>`).join(" ")
-            : `<span class="muted">Sin presentaciones registradas</span>`
+            : `<span class="muted">Sin presentaciones registradas</span>`,
+          `<button type="button" class="small-btn" data-route-student-open="${escapeHtml(f.studentId || "")}">Ver procesos y etapas</button>`
         ])) : `<div class="empty-state"><h3>Sin resultados</h3><p>Ningún estudiante coincide con esos filtros.</p></div>`}
       </div>
     </section>`;
@@ -830,6 +836,7 @@ function renderPickerLista() {
           <span class="picker-nombre">${escapeHtml(est.nombre)}</span>
           <span class="badge ${NIVEL_BADGE[est.nivel]}">${escapeHtml(est.etiqueta)}</span>
           ${perfilArtistico(est)?`<span class="badge info">${escapeHtml([est.area,est.instrumento,est.programa].filter(Boolean).join(" · "))}</span>`:`<span class="badge warning">Por confirmar en RIP</span>`}
+          <span style="grid-column:1/-1">${sampleRoutes.summary(est,state.picker.areaId)}</span>
           ${artisticHistoryFor(est).length?`<span class="badge info">Historial de muestras: ${escapeHtml([...new Set(artisticHistoryFor(est).map(record=>annualSystem.areaName(record.area,record.area)))].join(" · "))}</span>`:""}
           ${!coincideConFiltroArtistico(est,state.picker.areaId,state.picker.modalidadId)?`<span class="badge warning">Área o modalidad por confirmar para esta muestra</span>`:""}
           ${yaEsta
@@ -1307,6 +1314,7 @@ function calculateProgress() {
 function renderDetail() {
   if (state.vistaPrincipal !== "eventos") return;
   if (!state.selectedEvent) {
+    sampleRoutes.stop();
     teacherAdmin.stop();
     emptyState.classList.remove("hidden");
     eventDetail.classList.add("hidden");
@@ -1560,12 +1568,13 @@ function renderTabContent(tab) {
 
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
-    return table(["Estudiante / grupo", "Área artística", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
+    return table(["Estudiante / grupo", "Área artística", "Ruta del proceso", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
       participantIsEnsemble(row)
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <span class="badge info">Ensamble</span><div class="field-hint">${normalizeEnsembleMembers(row.integrantes).map(member => `${escapeHtml(member.nombre)} · ${escapeHtml(member.instrumento || 'Instrumento por definir')}`).join('<br>')}</div>`
         : `${escapeHtml(row.estudianteGrupo || "Sin nombre")}${participantEnsembles(row).length ? '<div><span class="badge info">Participa en ensamble</span></div>' : ''}`,
       escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
+      participantIsEnsemble(row)?`<details><summary>Ruta de cada integrante</summary>${normalizeEnsembleMembers(row.integrantes).map(member=>`<div><strong>${escapeHtml(member.nombre)}</strong>${sampleRoutes.summary(member,row.areaArtisticaId||'musica',row)}</div>`).join('')}</details>`:sampleRoutes.summary(row,row.areaArtisticaId||'musica',row),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
       participantWorks(row).map(obra => participantWorkCell(row, obra, conteoObras)).join(''),
       row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
@@ -1671,7 +1680,7 @@ function table(headers, rows) {
 }
 
 function rowActions(tab, id) {
-  return `<div class="actions"><button class="small-btn" data-edit-child="${tab}:${id}">Editar</button><button class="small-btn danger" data-delete-child="${tab}:${id}">Eliminar</button></div>`;
+  return `<div class="actions">${tab==="muestras"?`<button type="button" class="small-btn" data-sample-route="${escapeHtml(id)}">Ruta de muestras</button>`:""}<button class="small-btn" data-edit-child="${tab}:${id}">Editar</button><button class="small-btn danger" data-delete-child="${tab}:${id}">Eliminar</button></div>`;
 }
 
 function handleAction(action) {
@@ -1749,6 +1758,7 @@ function openEventDialog(evento = null) {
       <label>Responsable<input name="responsable" list="personasDisponibles" value="${escapeHtml(evento?.responsable || "")}" placeholder="Alek, Cata, equipo..." /></label>
       <label>Fecha<input type="date" name="fechaInicio" value="${escapeHtml(evento?.fechaInicio || "")}" /></label>
       <label>Hora<input type="time" name="horaInicio" value="${escapeHtml(evento?.horaInicio || "")}" /></label>
+      <label class="wide">Etapa pública de la ruta<select name="etapaRutaMuestra"><option value="">Sin definir / no aplica</option><option value="recital" ${evento?.etapaRutaMuestra==='recital'?'selected':''}>Recital</option><option value="grande" ${evento?.etapaRutaMuestra==='grande'?'selected':''}>Presentación grande</option></select><span class="field-hint">Permite registrar la participación efectiva desde la ruta de cada estudiante. Inscribirlo no completa la etapa.</span></label>
       <label>Lugar<input name="lugar" list="lugaresDisponibles" value="${escapeHtml(evento?.lugar || "")}" /></label>
       <label>Público<input name="publico" value="${escapeHtml(evento?.publico || "")}" /></label>
       <label>Presupuesto<input name="presupuesto" value="${escapeHtml(evento?.presupuesto || "")}" placeholder="$" /></label>
@@ -3358,6 +3368,7 @@ function attachGlobalEvents() {
   $("#commonActivitiesBtn").addEventListener("click", openCommonActivitiesDialog);
   $("#placesBtn").addEventListener("click", openPlacesDialog);
   $("#peopleBtn").addEventListener("click", openPeopleDialog);
+  $("#sampleRoutesBtn").addEventListener("click",()=>sampleRoutes.open());
   $("#historyBtn").addEventListener("click", () => { state.mostrarHistorialEventos=!state.mostrarHistorialEventos;applyFilters(); });
   $("#studentsBtn").addEventListener("click", () => {
     mostrarVista(state.vistaPrincipal === "estudiantes" ? "eventos" : "estudiantes");
@@ -3370,6 +3381,10 @@ function attachGlobalEvents() {
   $("#printBtn").addEventListener("click", () => window.print());
   ["#searchInput", "#typeFilter", "#statusFilter"].forEach(selector => $(selector).addEventListener("input", applyFilters));
   eventDetail.addEventListener("click", event => {
+    const routeTarget=event.target.closest("[data-sample-route]");
+    if(routeTarget){sampleRoutes.open(state.childData.muestras.find(row=>row.id===routeTarget.dataset.sampleRoute));return;}
+    const routeStudent=event.target.closest("[data-route-student-open]");
+    if(routeStudent){sampleRoutes.open(state.ripEstudiantes.find(row=>row.studentId===routeStudent.dataset.routeStudentOpen));return;}
     const editTarget = event.target.closest("[data-edit-child]");
     const deleteTarget = event.target.closest("[data-delete-child]");
     const cardTarget = event.target.closest("[data-card]");
@@ -3407,6 +3422,7 @@ onAuthStateChanged(auth, user => {
     dashboard.classList.remove("hidden");
     $("#userPill").innerHTML = `<strong>${escapeHtml(user.displayName || "Usuario")}</strong><br><span>${escapeHtml(user.email || "")}</span>`;
     annualSystem.start();
+    sampleRoutes.start();
     listenEventos();
     listenLugares();
     listenPersonas();
