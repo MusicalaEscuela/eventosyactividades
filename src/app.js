@@ -1,4 +1,4 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta-3';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta-4';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
