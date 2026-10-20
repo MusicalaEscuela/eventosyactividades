@@ -1,20 +1,13 @@
-# Ruta progresiva de muestras
+# Trayectoria de muestras del estudiante
 
-Cada registro representa a un estudiante identificado, un área y una obra o proceso. Audio → Video → Recital → Presentación grande.
+El seguimiento es acumulativo por estudiante y área artística, no por obra. Audio → Video → Recital → Presentación grande pueden realizarse con canciones o actividades diferentes. Cambiar de obra no reinicia la trayectoria.
 
-## Registrar un proceso
+- Abre Ruta de muestras y selecciona estudiante y área.
+- Pulsa una etapa para registrar estado, fecha, docente, evidencia opcional y la obra o actividad en observaciones. Para completarla necesitas fecha y docente.
+- El resumen reconoce una etapa si existe al menos un registro no eliminado que la complete. También cuentan registros cerrados anteriores. Los registros de prueba no completados no generan avances.
+- Los registros anteriores siguen en Registros e historial, con su auditoría. Pueden enviarse a la papelera y restaurarse. Los eliminados no cuentan en el avance.
+- No hace falta crear una ruta por obra ni vincularla a cada inscripción. Las listas de participantes y estudiantes muestran el mismo avance acumulado del estudiante en esa área.
+- La participación efectiva en un evento se registra de forma explícita después de realizarlo. Inscribir a alguien no completa etapas.
+- La fecha y el motivo de excepción siguen permitiendo revisar etapas omitidas o registradas fuera de orden.
 
-1. Abre **Ruta de muestras** en la barra lateral o desde la inscripción del estudiante en Participantes.
-2. Elige estudiante y área. **Iniciar nueva obra / proceso** crea las cuatro etapas pendientes; no copia avances anteriores ni borra el historial.
-3. Abre cada etapa para registrar estado, fecha, docente, enlace opcional y observaciones. Para completarla necesitas fecha y docente. Si omites etapas o registras fechas fuera de orden, deja el motivo de excepción.
-4. Al finalizar puedes cerrar el proceso. Permanece en el historial y se puede reabrir para corregirlo. Puede haber procesos simultáneos para obras diferentes.
-
-## Relacionarlo con una muestra
-
-- En Participantes → Ruta de muestras, selecciona el proceso y pulsa **Vincular a esta inscripción**. Cada integrante de un ensamble tiene su propio proceso.
-- Editar evento permite indicar si corresponde a un recital o a una presentación grande. No se presupone que todas las muestras sean de la misma etapa.
-- Después de la presentación, abre la ruta desde esa inscripción y utiliza **Registrar participación efectiva**. Revisa fecha, docente y etapas anteriores antes de guardar. El evento no puede tener fecha futura ni estar marcado como No realizado.
-- Inscribir estudiantes, vincular un proceso, enviar un formulario docente o marcar el evento realizado no completa etapas automáticamente.
-- La lista de selección y la tabla de participantes muestran los avances. Si hay varios procesos activos o la inscripción no tiene uno vinculado, revisa cuál corresponde a la nueva obra.
-
-Los datos se guardan en `rutasMuestras`, con un historial de cambios por proceso. Solo acceden las cuentas del equipo ya autorizadas; el formulario docente sin sesión no recibe acceso a este historial. No se modifica RIP. Los avances anteriores no se inventan ni se migran como completados desde simples inscripciones históricas.
+La colección existente rutasMuestras se conserva. No se borran ni se reescriben datos históricos para adoptar este modelo.

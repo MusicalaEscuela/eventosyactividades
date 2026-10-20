@@ -1,4 +1,4 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261019-ruta-6';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261020-trayectoria-1';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
@@ -1567,7 +1567,7 @@ function renderTabContent(tab) {
 
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
-    return table(["Estudiante / grupo", "Área artística", "Ruta del proceso", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
+    return table(["Estudiante / grupo", "Área artística", "Trayectoria del estudiante", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
       participantIsEnsemble(row)
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <span class="badge info">Ensamble</span><div class="field-hint">${normalizeEnsembleMembers(row.integrantes).map(member => `${escapeHtml(member.nombre)} · ${escapeHtml(member.instrumento || 'Instrumento por definir')}`).join('<br>')}</div>`
