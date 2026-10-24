@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261024-participantes-2';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261024-tiempo-3';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-participantes-2';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261024-participantes-2";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-tiempo-3';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261024-tiempo-3";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-participantes-2";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-participantes-2";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-tiempo-3";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-tiempo-3";
 import {
   auth,
   provider,
@@ -1071,7 +1071,7 @@ function participantDurationCell(row) {
   if (duration.mode === 'ensemble-only') return '<span class="field-hint">Tiempo incluido en el ensamble</span>';
   if (duration.needsReview) return '<span class="badge warning">Tiempo por completar</span>';
   if (!row.duracionPorObra && obrasDe(row).length > 1) return `<span class="field-hint">${escapeHtml(formatWorkTime(duration.minutes))} anteriores · repartir por obra</span>`;
-  return `${escapeHtml(duration.minutes)} min${duration.mode === 'mixed-confirmed' ? ' solistas' : ''}`;
+  return `${escapeHtml(formatWorkTime(duration.minutes))} (min:seg)${duration.mode === 'mixed-confirmed' ? ' solistas' : ''}`;
 }
 
 function ensembleMembersText(group) {
@@ -1634,7 +1634,7 @@ function renderTabContent(tab) {
       : `<span>${escapeHtml(next.reason)}</span>`;
     return `<div class="progress-meta" role="status">${nextHint}</div>` + table(["Hora", "Momento / actividad", "Encargado", "Duración", "Montaje / transición", ""], rows.map(row => [
       momentTimeCell(row),
-      momentTitle(row) + (warnings.get(row.id) || []).map(message => `<p class="field-hint hint-alerta">${escapeHtml(message)}</p>`).join(''), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(row.duracionMin)} min` : "",
+      momentTitle(row) + (warnings.get(row.id) || []).map(message => `<p class="field-hint hint-alerta">${escapeHtml(message)}</p>`).join(''), escapeHtml(row.encargado || ""), row.duracionMin != null && row.duracionMin !== '' ? `${escapeHtml(formatWorkTime(row.duracionMin))} (min:seg)` : "",
       escapeHtml(row.montaje || ""), rowActions(tab, row.id)
     ]));
   }
