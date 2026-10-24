@@ -2,6 +2,8 @@ import { normalizarNombre } from './docentes-model.js';
 
 export function workMinutes(value) {
   if (value == null || String(value).trim() === '') return null;
+  const clock=String(value).trim().match(/^(\d+):([0-5]\d)$/);
+  if(clock)return (Number(clock[1])*60+Number(clock[2]))/60;
   const number = Number(String(value).replace(',', '.'));
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
@@ -27,4 +29,8 @@ export function workDurationSummary(row, works) {
   const pending = unique.filter(work => getWorkMinutes(row, work) === null);
   const knownMinutes = unique.reduce((sum, work) => sum + (getWorkMinutes(row, work) ?? 0), 0);
   return { minutes: pending.length ? null : knownMinutes, knownMinutes, pending };
+}
+
+export function formatWorkTime(value) {
+ const minutes=workMinutes(value);if(minutes===null)return '';const seconds=Math.round(minutes*60);return Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
 }

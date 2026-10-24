@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261020-trayectoria-1';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261024-obras-1';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261016-tiempo-por-obra';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261016-tiempo-por-obra";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-obras-1';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261024-obras-1";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261016-tiempo-por-obra";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261016-tiempo-por-obra";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-obras-1";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-obras-1";
 import {
   auth,
   provider,
@@ -1031,7 +1031,7 @@ function resumenRepertorio() {
     `<span class="badge info">${invitacionesEnviadas} invitación${invitacionesEnviadas === 1 ? "" : "es"} enviada${invitacionesEnviadas === 1 ? "" : "s"}</span>`,
     `<span class="badge success">${invitacionesAceptadas} aceptada${invitacionesAceptadas === 1 ? "" : "s"}</span>`,
     `<span class="badge neutral">${totalInvitados} invitado${totalInvitados === 1 ? "" : "s"}</span>`,
-    tiemposPendientes ? `<span class="badge warning">Subtotal conocido: ${minutos} min · ${tiemposPendientes} duración${tiemposPendientes === 1 ? '' : 'es'} por revisar</span>` : minutos ? `<span class="badge neutral">≈ ${minutos} min</span>` : "",
+    tiemposPendientes ? `<span class="badge warning">Subtotal conocido: ${formatWorkTime(minutos)} · ${tiemposPendientes} duración${tiemposPendientes === 1 ? '' : 'es'} por revisar</span>` : minutos ? `<span class="badge neutral">≈ ${formatWorkTime(minutos)}</span>` : "",
     tiemposAnteriores ? `<span class="badge warning">${tiemposAnteriores} tiempo(s) anterior(es) por repartir entre obras</span>` : '',
     sinObra ? `<span class="badge warning">${sinObra} sin obra asignada</span>` : "",
     repetidas.length
@@ -1070,7 +1070,7 @@ function participantDurationCell(row) {
   const duration = participantDuration(row);
   if (duration.mode === 'ensemble-only') return '<span class="field-hint">Tiempo incluido en el ensamble</span>';
   if (duration.needsReview) return '<span class="badge warning">Tiempo por completar</span>';
-  if (!row.duracionPorObra && obrasDe(row).length > 1) return `<span class="field-hint">${escapeHtml(duration.minutes)} min anteriores · repartir por obra</span>`;
+  if (!row.duracionPorObra && obrasDe(row).length > 1) return `<span class="field-hint">${escapeHtml(formatWorkTime(duration.minutes))} anteriores · repartir por obra</span>`;
   return `${escapeHtml(duration.minutes)} min${duration.mode === 'mixed-confirmed' ? ' solistas' : ''}`;
 }
 
@@ -1094,7 +1094,7 @@ function participantWorkCell(row, work, counts) {
   const action = groups.length || ownIndex < 0 ? '' : `<button type="button" class="small-btn" data-assemble-source="${escapeHtml(row.id)}" data-assemble-index="${ownIndex}">Armar ensamble</button>`;
   const source = groups.length === 1 ? groups[0] : groups.length ? null : row;
   const minutes = source ? getWorkMinutes(source, work) : null;
-  const time = row.areaArtisticaId === 'artes-plasticas' ? '' : `<span class="badge ${minutes === null ? 'warning' : 'neutral'}">${minutes === null ? 'Minutos por definir' : `${escapeHtml(minutes)} min`}</span>`;
+  const time = row.areaArtisticaId === 'artes-plasticas' ? '' : `<span class="badge ${minutes === null ? 'warning' : 'neutral'}">${minutes === null ? 'Duración por definir' : `${escapeHtml(formatWorkTime(minutes))}`}</span>`;
   return `<div class="ensemble-work">${escapeHtml(work)} ${time}${repeated}${shared}${action}</div>`;
 }
 
@@ -1109,10 +1109,15 @@ function obrasDe(row = {}) {
   return texto ? [texto] : [];
 }
 
-function campoObra(valor = "", minutos = null) {
+function workGenre(row, work) {
+ const entries=Array.isArray(row.generosObras)?row.generosObras:[];
+ return entries.find(item=>normalizarNombre(item.obra)===normalizarNombre(work))?.genero || row.genero || 'Sin definir';
+}
+
+function campoObra(valor = "", minutos = null, genero = "Sin definir") {
   return `<div class="obra-item">
     <label>Obra / actividad<input name="repertorioItem" list="bancoRepertorio" value="${escapeHtml(valor)}" placeholder="Escribe la obra o elígela del banco" /></label>
-    <label>Minutos<input type="number" min="0" step="any" name="duracionObra" value="${minutos === null ? '' : escapeHtml(minutos)}" placeholder="Por definir" /></label>
+    <label>Duración (min:seg)<input type="text" name="duracionObra" pattern="[0-9]+:[0-5][0-9]" value="${escapeHtml(formatWorkTime(minutos))}" placeholder="4:05" title="Minutos y segundos, por ejemplo 4:05" /></label><label>Género<select name="generoObra">${opcionesConSeleccion(listaParticipantes("generos", GENEROS), genero)}</select></label>
     <button type="button" class="ghost obra-quitar" title="Quitar obra" aria-label="Quitar obra">✕</button>
     <small class="obra-tiempo-hint field-hint"></small>
   </div>`;
@@ -1576,7 +1581,7 @@ function renderTabContent(tab) {
       participantIsEnsemble(row)?`<details><summary>Ruta de cada integrante</summary>${normalizeEnsembleMembers(row.integrantes).map(member=>`<div><strong>${escapeHtml(member.nombre)}</strong>${sampleRoutes.summary(member,row.areaArtisticaId||'musica',row)}</div>`).join('')}</details>`:sampleRoutes.summary(row,row.areaArtisticaId||'musica',row),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
       participantWorks(row).map(obra => participantWorkCell(row, obra, conteoObras)).join(''),
-      row.genero && row.genero !== "Sin definir" ? `<span class="badge info">${escapeHtml(row.genero)}</span>` : "",
+      getParticipantWorks(row).map(work=>({work,genre:workGenre(row,work)})).filter(item=>item.genre!=="Sin definir").map(item=>`<div><small>${escapeHtml(item.work)}</small><br><span class="badge info">${escapeHtml(item.genre)}</span></div>`).join(""),
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
       participantDurationCell(row),
@@ -1884,7 +1889,7 @@ function openChildDialog(tab, row = null) {
           if (input.dataset.sharedKey !== key) {
             if (!input.dataset.sharedKey) input.dataset.ownMinutes = input.value;
             const minutes = groups.length === 1 ? getWorkMinutes(groups[0], work) : null;
-            input.value = minutes ?? '';
+            input.value = formatWorkTime(minutes);
             input.dataset.sharedInitial = input.value;
             input.dataset.sharedKey = key;
           }
@@ -1906,7 +1911,7 @@ function openChildDialog(tab, row = null) {
       const pending = entries.filter(entry => entry.minutos === null).length;
       const old = row?.duracionAnteriorMin ?? (!row?.duracionPorObra ? row?.duracionMin : null);
       const onlyShared = !entries.length && Boolean(modalForm.querySelector('[data-shared-key]'));
-      holder.innerHTML = exhibition ? '' : `<p class="field-hint" role="status">${onlyShared ? 'El tiempo de estas obras se cuenta una sola vez en el ensamble.' : pending ? `Subtotal conocido: ${known} min · ${pending} obra(s) por completar.` : `Total calculado: ${known} min.`} ${onlyShared ? '' : group ? 'Este tiempo se cuenta una sola vez para todo el ensamble.' : 'Las obras de ensamble se cuentan en su presentación compartida.'}</p>${old != null && String(old) !== '' && pending ? `<p class="field-hint">Duración anterior: ${escapeHtml(old)} min. Reparte los minutos entre las obras; no se distribuyen automáticamente.</p>` : ''}`;
+      holder.innerHTML = exhibition ? '' : `<p class="field-hint" role="status">${onlyShared ? 'El tiempo de estas obras se cuenta una sola vez en el ensamble.' : pending ? `Subtotal conocido: ${formatWorkTime(known)} · ${pending} obra(s) por completar.` : `Total calculado: ${known} min.`} ${onlyShared ? '' : group ? 'Este tiempo se cuenta una sola vez para todo el ensamble.' : 'Las obras de ensamble se cuentan en su presentación compartida.'}</p>${old != null && String(old) !== '' && pending ? `<p class="field-hint">Duración anterior: ${escapeHtml(formatWorkTime(old))}. Reparte los minutos entre las obras; no se distribuyen automáticamente.</p>` : ''}`;
     };
   }
 
@@ -2103,7 +2108,7 @@ function openChildDialog(tab, row = null) {
 
   // Al escoger una obra del banco de repertorio, se propone su género.
   const obrasLista = modalForm.querySelector("#obrasLista");
-  const generoSelect = modalForm.querySelector('[name="genero"]');
+
   if (obrasLista) {
     // Aviso de obra repetida: en este evento o ya presentada por el estudiante.
     const avisarObras = () => {
@@ -2143,7 +2148,8 @@ function openChildDialog(tab, row = null) {
     obrasLista.addEventListener("input", avisarObras);
     obrasLista.addEventListener("change", (e) => {
       // Al escoger una obra del banco de repertorio, se propone su género.
-      const song = findRepertorio(e.target.value || "");
+      const song = e.target.name === "repertorioItem" ? findRepertorio(e.target.value || "") : null;
+      const generoSelect = e.target.closest(".obra-item")?.querySelector('[name="generoObra"]');
       if (song && generoSelect && generoSelect.value === "Sin definir") {
         if (![...generoSelect.options].some(option => option.value === song.genero)) {
           generoSelect.add(new Option(song.genero, song.genero));
@@ -2157,7 +2163,7 @@ function openChildDialog(tab, row = null) {
       if (!quitar) return;
       const items = obrasLista.querySelectorAll(".obra-item");
       if (items.length > 1) quitar.closest(".obra-item").remove();
-      else items[0].querySelectorAll('input').forEach(input => { input.value = ''; });
+      else { items[0].querySelectorAll('input').forEach(input => { input.value = ''; }); items[0].querySelector('[name="generoObra"]').value='Sin definir'; }
       avisarObras();
     });
     modalForm.querySelector("#agregarObra")?.addEventListener("click", () => {
@@ -2309,6 +2315,8 @@ function openChildDialog(tab, row = null) {
         const duplicate = state.childData.muestras.find(participant => participant.id !== row?.id && participantIsEnsemble(participant) && ensembleSignature(participant) === ensembleSignature(data));
         if (duplicate) { toast('Ya existe un ensamble con esas obras e integrantes. Abre su inscripción para editarla.'); return; }
       }
+      data.generosObras = [...modalForm.querySelectorAll('.obra-item')].map(item=>({obra:item.querySelector('[name="repertorioItem"]').value.trim(),genero:item.querySelector('[name="generoObra"]').value})).filter(item=>item.obra);
+      const genres=[...new Set(data.generosObras.map(item=>item.genero))];data.genero=genres.length===1?genres[0]:'Sin definir';delete data.generoObra;
       data.duracionPorObra = true;
       data.duracionesObras = [...modalForm.querySelectorAll('.obra-item')].map(item => ({
         obra: item.querySelector('[name="repertorioItem"]').value.trim(),
@@ -2529,14 +2537,14 @@ function childForm(tab, row = {}) {
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
         <div class="wide"><p>Repertorio / actividad (una o varias obras)</p>
-          <div id="obrasLista">${(editorWorks.length ? editorWorks : [""]).map(o => campoObra(o, getWorkMinutes(row, o))).join("")}</div>
+          <div id="obrasLista">${(editorWorks.length ? editorWorks : [""]).map(o => campoObra(o, getWorkMinutes(row, o), workGenre(row, o))).join("")}</div>
           <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
           <datalist id="bancoRepertorio">${BANCO_REPERTORIO.map(song => `<option value="${escapeHtml(song.titulo)}">${escapeHtml(song.artista)}</option>`).join("")}</datalist>
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
         </div>
         <div class="wide" id="areaContext">${annualSystem.participantContext(row)}</div>
         <div class="wide" id="participantDurationContext"></div>
-        <label>Género<select name="genero">${opcionesConSeleccion(opcionesGeneros, generoActual)}</select></label>
+
         <label>Estado<select name="estado">${selectOptions(FIELD_OPTIONS.estadoItem, row.estado || "Pendiente")}</select></label>
         <label>Prioridad<select name="prioridad">${selectOptions(FIELD_OPTIONS.prioridad, row.prioridad || "Media")}</select></label>
         <fieldset class="wide selector-recursos">
