@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261024-obras-1';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261024-participantes-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-obras-1';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261024-obras-1";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-participantes-2';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261024-participantes-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-obras-1";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-obras-1";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-participantes-2";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-participantes-2";
 import {
   auth,
   provider,
@@ -1399,12 +1399,15 @@ function renderDetail() {
           <button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>
         </div>
       </div>
-      ${state.tab === "muestras" ? resumenRepertorio() : ""}
+      ${state.tab === "muestras" ? resumenRepertorio()+participantControls() : ""}
       <div class="table-panel ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
     </section>
   `;
 
-  $$("[data-tab]").forEach(btn => btn.addEventListener("click", () => {
+  eventDetail.querySelectorAll('[data-participant-filter]').forEach(input=>input.addEventListener('change',()=>{participantView()[input.dataset.participantFilter]=input.value;renderDetail();}));
+  eventDetail.querySelectorAll('[data-participant-status]').forEach(button=>button.addEventListener('click',()=>{participantView().estado=button.dataset.participantStatus;renderDetail();}));
+  eventDetail.querySelector('[data-participant-reset]')?.addEventListener('click',()=>{Object.assign(participantView(),{estado:'Todos',invitacion:'Todas'});renderDetail();});
+  $("[data-tab]").forEach(btn => btn.addEventListener("click", () => {
     state.tab = btn.dataset.tab;
     renderDetail();
   }));
@@ -1534,6 +1537,20 @@ async function moveCard(tab, id, columnaId) {
   }
 }
 
+const participantViews = new Map();
+function participantView(){const key=state.selectedEventId;if(!participantViews.has(key))participantViews.set(key,{estado:'Todos',invitacion:'Todas',orden:'estado'});return participantViews.get(key);}
+function participantControls(){
+ const rows=state.childData.muestras||[],view=participantView();
+ const statuses=[...new Set(['Confirmado','Pendiente','Cancelado',...rows.map(row=>row.estado||'Pendiente')])];
+ return '<div class="participant-controls" style="margin:16px 0"><div class="form-grid"><label>Estado de participación<select data-participant-filter="estado">'+opcionesConSeleccion(['Todos',...statuses],view.estado)+'</select></label><label>Invitación<select data-participant-filter="invitacion">'+opcionesConSeleccion(['Todas','Pendiente','Enviada','Aceptada','Rechazada'],view.invitacion)+'</select></label><label>Ordenar por<select data-participant-filter="orden">'+[['estado','Estado y nombre'],['nombre','Nombre'],['registro','Orden de registro']].map(([value,label])=>'<option value="'+value+'" '+(view.orden===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">'+statuses.filter(status=>rows.some(row=>(row.estado||'Pendiente')===status)).map(status=>'<button type="button" class="small-btn" data-participant-status="'+escapeHtml(status)+'" aria-pressed="'+(view.estado===status)+'">'+escapeHtml(status)+' ('+rows.filter(row=>(row.estado||'Pendiente')===status).length+')</button>').join('')+'<button type="button" class="small-btn" data-participant-reset>Ver todos ('+rows.length+')</button></div><p class="field-hint">Los contadores corresponden a inscripciones, incluidos ensambles. Estado de participación e invitación se consultan por separado. Los filtros no cambian los totales del evento.</p></div>';
+}
+function participantVisibleRows(rows){
+ const view=participantView(),order=['Confirmado','Pendiente','En curso','Listo','Realizado','En riesgo','Bloqueado','Cancelado'];
+ const selected=rows.filter(row=>(view.estado==='Todos'||(row.estado||'Pendiente')===view.estado)&&(view.invitacion==='Todas'||(row.invitacionEstado||'Pendiente')===view.invitacion));
+ if(view.orden==='registro')return selected;
+ return [...selected].sort((a,b)=>{const rank=status=>{const i=order.indexOf(status||'Pendiente');return i<0?order.length:i;};return (view.orden==='estado'?rank(a.estado)-rank(b.estado):0)||String(a.estudianteGrupo||'').localeCompare(String(b.estudianteGrupo||''),'es');});
+}
+
 function renderTabContent(tab) {
   if (tab === "partituras") return scores.render();
   if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
@@ -1572,7 +1589,10 @@ function renderTabContent(tab) {
 
   if (tab === "muestras") {
     const conteoObras = repertorioDelEvento();
-    return table(["Estudiante / grupo", "Área artística", "Trayectoria del estudiante", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], rows.map(row => [
+    const visible=participantVisibleRows(rows);
+    const notice='<p class="field-hint" role="status">Mostrando '+visible.length+' de '+rows.length+' inscripciones.</p>';
+    if(!visible.length)return notice+'<p>No hay participantes que coincidan con estos filtros. Pulsa Ver todos para recuperar el listado.</p>';
+    return notice+table(["Estudiante / grupo", "Área artística", "Trayectoria del estudiante", "Modalidad", "Repertorio / actividad / obra", "Género", "Docente", "Bloque", "Tiempo contabilizado", "Estado", "Invitación", "Invitados", "Recursos", ""], visible.map(row => [
       participantIsEnsemble(row)
         ? `<strong>${escapeHtml(row.estudianteGrupo || "Ensamble")}</strong>
            <span class="badge info">Ensamble</span><div class="field-hint">${normalizeEnsembleMembers(row.integrantes).map(member => `${escapeHtml(member.nombre)} · ${escapeHtml(member.instrumento || 'Instrumento por definir')}`).join('<br>')}</div>`
