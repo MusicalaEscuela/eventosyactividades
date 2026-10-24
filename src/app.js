@@ -1407,7 +1407,7 @@ function renderDetail() {
   eventDetail.querySelectorAll('[data-participant-filter]').forEach(input=>input.addEventListener('change',()=>{participantView()[input.dataset.participantFilter]=input.value;renderDetail();}));
   eventDetail.querySelectorAll('[data-participant-status]').forEach(button=>button.addEventListener('click',()=>{participantView().estado=button.dataset.participantStatus;renderDetail();}));
   eventDetail.querySelector('[data-participant-reset]')?.addEventListener('click',()=>{Object.assign(participantView(),{estado:'Todos',invitacion:'Todas'});renderDetail();});
-  $("[data-tab]").forEach(btn => btn.addEventListener("click", () => {
+  $$("[data-tab]").forEach(btn => btn.addEventListener("click", () => {
     state.tab = btn.dataset.tab;
     renderDetail();
   }));
