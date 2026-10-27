@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261024-tiempo-3';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261027-recursos-1';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261024-tiempo-3';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261024-tiempo-3";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261027-recursos-1';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261027-recursos-1";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261024-tiempo-3";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261024-tiempo-3";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261027-recursos-1";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261027-recursos-1";
 import {
   auth,
   provider,
@@ -270,9 +270,11 @@ const FIELD_OPTIONS = {
 };
 
 // Cada evento puede ajustar estas opciones desde Participantes sin afectar los demás.
+const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular'];
 const RECURSOS_TECNICOS_INICIALES = [
+  ...RECURSOS_EQUIPO_EVENTO,
   // Sonido general
-  "Sonido", "Monitor", "Pista", "Consola / mezcla",
+  "Monitor", "Pista", "Consola / mezcla",
   // Micrófonos
   "Micrófono", "Micrófono de voz inalámbrico", "Micrófono de voz con base", "Micrófono para violín / viola",
   "Micrófono para chelo", "Micrófono para vientos", "Micrófono para guitarra acústica", "Micrófonos de batería",
@@ -287,7 +289,8 @@ const RECURSOS_TECNICOS_INICIALES = [
 
 function listaParticipantes(campo, respaldo) {
   const lista = state.selectedEvent?.listasParticipantes?.[campo];
-  return Array.isArray(lista) && lista.length ? lista : respaldo;
+  const options=Array.isArray(lista) && lista.length ? lista : respaldo;
+  return campo==='recursosTecnicos' ? [...new Set([...RECURSOS_EQUIPO_EVENTO,...options.filter(item=>normalizarNombre(item)!=='sonido')])] : options;
 }
 
 function opcionesConSeleccion(options, selected = "") {
@@ -1368,6 +1371,7 @@ function renderDetail() {
           <div class="info-box"><span>Responsable</span><strong>${escapeHtml(evento.responsable || "Sin definir")}</strong></div>
           <div class="info-box"><span>Lugar</span><strong>${escapeHtml(evento.lugar || "Sin definir")}</strong></div>
           <div class="info-box"><span>Público</span><strong>${escapeHtml(evento.publico || "Sin definir")}</strong></div>
+          <div class="info-box"><span>Sillas del evento</span><strong>${escapeHtml(evento.sillasCantidad === '' || evento.sillasCantidad == null ? 'Por definir' : evento.sillasCantidad)}</strong></div><div class="info-box"><span>Ventiladores</span><strong>${escapeHtml(evento.ventiladoresCantidad === '' || evento.ventiladoresCantidad == null ? 'Por definir' : evento.ventiladoresCantidad)}</strong></div>
           <div class="info-box"><span>Presupuesto</span><strong>${escapeHtml(evento.presupuesto || "Sin definir")}</strong></div>
           <div class="info-box wide"><span>Notas</span><strong>${escapeHtml(evento.notas || "Sin notas")}</strong></div>
         </div>
@@ -1785,6 +1789,8 @@ function openEventDialog(evento = null) {
       <label class="wide">Etapa pública de la ruta<select name="etapaRutaMuestra"><option value="">Sin definir / no aplica</option><option value="recital" ${evento?.etapaRutaMuestra==='recital'?'selected':''}>Recital</option><option value="grande" ${evento?.etapaRutaMuestra==='grande'?'selected':''}>Presentación grande</option></select><span class="field-hint">Permite registrar la participación efectiva desde la ruta de cada estudiante. Inscribirlo no completa la etapa.</span></label>
       <label>Lugar<input name="lugar" list="lugaresDisponibles" value="${escapeHtml(evento?.lugar || "")}" /></label>
       <label>Público<input name="publico" value="${escapeHtml(evento?.publico || "")}" /></label>
+      <label>Sillas para el evento (cantidad)<input type="number" min="0" step="1" name="sillasCantidad" value="${escapeHtml(evento?.sillasCantidad ?? '')}" placeholder="Por definir" /><span class="field-hint">Total general para público y organización.</span></label>
+      <label>Ventiladores (cantidad)<input type="number" min="0" step="1" name="ventiladoresCantidad" value="${escapeHtml(evento?.ventiladoresCantidad ?? '')}" placeholder="Por definir" /></label>
       <label>Presupuesto<input name="presupuesto" value="${escapeHtml(evento?.presupuesto || "")}" placeholder="$" /></label>
       <label class="wide">Objetivo<textarea name="objetivo">${escapeHtml(evento?.objetivo || "")}</textarea></label>
       <label class="wide">Notas<textarea name="notas">${escapeHtml(evento?.notas || "")}</textarea></label>
@@ -1794,6 +1800,7 @@ function openEventDialog(evento = null) {
   modalForm.onsubmit = async (submitEvent) => {
     submitEvent.preventDefault();
     const data = Object.fromEntries(new FormData(modalForm).entries());
+    for(const key of ['sillasCantidad','ventiladoresCantidad']){if(data[key]!==''){const value=Number(data[key]);if(!Number.isSafeInteger(value)||value<0){toast('Indica cantidades enteras de cero o más.');return;}data[key]=value;}}
     data.updatedAt = serverTimestamp();
     data.updatedBy = state.user.email;
     try {
@@ -2537,7 +2544,7 @@ function childForm(tab, row = {}) {
   }
 
   if (tab === "muestras") {
-    const opcionesRecursos = listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES);
+    const opcionesRecursos = [...new Set([...listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES), ...recursosSeleccionados(row)])];
     const editorWorks = participantWorks(row);
     const seleccionados = recursosSeleccionados(row);
     const generoActual = normalizeGenre(row.genero || "Sin definir");
@@ -2579,9 +2586,9 @@ function childForm(tab, row = {}) {
         </fieldset>
         <fieldset class="wide selector-recursos">
           <legend>Recursos técnicos</legend>
-          <p class="field-hint">Marca todo lo que requiere este participante.</p>
+          <p class="field-hint">Marca los equipos concretos para esta presentación. Las sillas del público y los ventiladores van en Editar evento. «Silla sin brazos» es para el músico en escena. El parlante incluye cable de energía; los telones forman un juego de 2.</p>
           <div class="check-grid">${opcionesRecursos.map(recurso => `
-            <label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(recurso)}" ${seleccionados.includes(recurso) ? "checked" : ""} /><span>${escapeHtml(recurso)}</span></label>
+            <label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(recurso)}" ${seleccionados.includes(recurso) ? "checked" : ""} /><span>${escapeHtml(recurso)}${normalizarNombre(recurso)==='sonido'?' · registro anterior: precisa los equipos':''}</span></label>
           `).join("")}</div>
           <label class="otro-recurso">Otro recurso<input name="recursoOtro" placeholder="Ej: Proyector" /></label>
         </fieldset>
