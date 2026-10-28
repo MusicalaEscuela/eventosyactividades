@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261028-reutilizar-1';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-reutilizar-1';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261028-reutilizar-1";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261028-reutilizar-1";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261028-reutilizar-1";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261028-apoyo-2";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261028-apoyo-2";
 import {
   auth,
   provider,
@@ -1107,7 +1107,9 @@ function participantWorkCell(row, work, counts) {
   const source = groups.length === 1 ? groups[0] : groups.length ? null : row;
   const minutes = source ? getWorkMinutes(source, work) : null;
   const time = row.areaArtisticaId === 'artes-plasticas' ? '' : `<span class="badge ${minutes === null ? 'warning' : 'neutral'}">${minutes === null ? 'Duración por definir' : `${escapeHtml(formatWorkTime(minutes))}`}</span>`;
-  return `<div class="ensemble-work">${escapeHtml(work)} ${time}${repeated}${shared}${action}</div>`;
+  const apoyo = (row.apoyosObras||[]).find(item=>normalizarNombre(item.obra)===normalizarNombre(work)) || (source?.apoyosObras||[]).find(item=>normalizarNombre(item.obra)===normalizarNombre(work));
+  const support=apoyo ? '<div class="field-hint"><strong>Apoyo docente: '+escapeHtml(apoyo.estado||'Por definir')+'</strong>'+(apoyo.docente?'<br>'+escapeHtml(apoyo.docente):'')+(apoyo.como?'<br>'+escapeHtml(apoyo.como):'')+'</div>' : '';
+  return `<div class="ensemble-work">${escapeHtml(work)} ${time}${repeated}${support}${shared}${action}</div>`;
 }
 
 /* ============ Control de repertorio (que no se repitan obras) ============ */
@@ -1126,11 +1128,12 @@ function workGenre(row, work) {
  return entries.find(item=>normalizarNombre(item.obra)===normalizarNombre(work))?.genero || row.genero || 'Sin definir';
 }
 
-function campoObra(valor = "", minutos = null, genero = "Sin definir") {
+function campoObra(valor = "", minutos = null, genero = "Sin definir", apoyo = {}) {
   return `<div class="obra-item">
     <label>Obra / actividad<input name="repertorioItem" list="bancoRepertorio" value="${escapeHtml(valor)}" placeholder="Escribe la obra o elígela del banco" /></label>
     <label>Duración (min:seg)<input type="text" name="duracionObra" pattern="[0-9]+:[0-5][0-9]" value="${escapeHtml(formatWorkTime(minutos))}" placeholder="4:05" title="Minutos y segundos, por ejemplo 4:05" /></label><label>Género<select name="generoObra">${opcionesConSeleccion(listaParticipantes("generos", GENEROS), genero)}</select></label>
     <button type="button" class="ghost obra-quitar" title="Quitar obra" aria-label="Quitar obra">✕</button>
+    <fieldset style="grid-column:1 / -1;border:1px solid #ddd7eb;border-radius:12px;padding:12px"><legend>Apoyo o acompañamiento docente para esta obra</legend><div class="form-grid"><label>¿Necesita apoyo?<select name="apoyoObraEstado">${opcionesConSeleccion(["Por definir", "Sí", "No"], apoyo.estado || "Por definir")}</select></label><label>Docente que acompañará<input name="apoyoObraDocente" list="docentesDisponibles" maxlength="160" value="${escapeHtml(apoyo.docente || '')}" placeholder="Elige o escribe el nombre" /></label><label class="wide">¿Cómo acompañará?<textarea name="apoyoObraComo" maxlength="1500" placeholder="Ej.: acompañamiento al piano, segunda voz, tocar guitarra o dar las entradas">${escapeHtml(apoyo.como || '')}</textarea></label></div><p class="field-hint">Indica el apoyo de esta canción. Si aún no está acordado, deja Por definir.</p></fieldset>
     <small class="obra-tiempo-hint field-hint"></small>
   </div>`;
 }
@@ -2199,7 +2202,7 @@ function openChildDialog(tab, row = null) {
       if (!quitar) return;
       const items = obrasLista.querySelectorAll(".obra-item");
       if (items.length > 1) quitar.closest(".obra-item").remove();
-      else { items[0].querySelectorAll('input').forEach(input => { input.value = ''; }); items[0].querySelector('[name="generoObra"]').value='Sin definir'; }
+      else { items[0].querySelectorAll('input').forEach(input => { input.value = ''; }); items[0].querySelector('[name="generoObra"]').value='Sin definir'; items[0].querySelector('[name="apoyoObraEstado"]').value='Por definir'; items[0].querySelector('[name="apoyoObraComo"]').value=''; }
       avisarObras();
     });
     modalForm.querySelector("#agregarObra")?.addEventListener("click", () => {
@@ -2357,6 +2360,8 @@ function openChildDialog(tab, row = null) {
         const duplicate = state.childData.muestras.find(participant => participant.id !== row?.id && participantIsEnsemble(participant) && ensembleSignature(participant) === ensembleSignature(data));
         if (duplicate) { toast('Ya existe un ensamble con esas obras e integrantes. Abre su inscripción para editarla.'); return; }
       }
+      data.apoyosObras = [...modalForm.querySelectorAll('.obra-item')].map(item=>({obra:item.querySelector('[name="repertorioItem"]').value.trim(),estado:item.querySelector('[name="apoyoObraEstado"]').value,docente:item.querySelector('[name="apoyoObraDocente"]').value.trim(),como:item.querySelector('[name="apoyoObraComo"]').value.trim()})).filter(item=>item.obra);
+      delete data.apoyoObraEstado;delete data.apoyoObraDocente;delete data.apoyoObraComo;
       data.generosObras = [...modalForm.querySelectorAll('.obra-item')].map(item=>({obra:item.querySelector('[name="repertorioItem"]').value.trim(),genero:item.querySelector('[name="generoObra"]').value})).filter(item=>item.obra);
       const genres=[...new Set(data.generosObras.map(item=>item.genero))];data.genero=genres.length===1?genres[0]:'Sin definir';delete data.generoObra;
       data.duracionPorObra = true;
@@ -2580,7 +2585,7 @@ function childForm(tab, row = {}) {
         <label>Docente<select name="docente" id="participantTeacherSelect">${participantTeacherOptions(row.docente || '', participantTeacherHistoryFor(row))}</select><span class="field-hint">Elige un docente ya registrado. Para añadir uno nuevo, usa Base de personas.</span></label>
         <div class="wide participant-teacher-history" id="participantTeacherHistory" data-event-id="${escapeHtml(state.selectedEventId)}" data-participant-id="${escapeHtml(row.id || '')}" data-ensemble="${participantIsEnsemble(row)}"></div>
         <div class="wide"><p>Repertorio / actividad (una o varias obras)</p>
-          <div id="obrasLista">${(editorWorks.length ? editorWorks : [""]).map(o => campoObra(o, getWorkMinutes(row, o), workGenre(row, o))).join("")}</div>
+          <div id="obrasLista">${(editorWorks.length ? editorWorks : [""]).map(o => campoObra(o, getWorkMinutes(row, o), workGenre(row, o), (row.apoyosObras || []).find(item=>normalizarNombre(item.obra)===normalizarNombre(o)) || {})).join("")}</div>
           <button type="button" class="ghost" id="agregarObra" style="align-self:flex-start;">+ Agregar otra obra</button>
           <datalist id="bancoRepertorio">${BANCO_REPERTORIO.map(song => `<option value="${escapeHtml(song.titulo)}">${escapeHtml(song.artista)}</option>`).join("")}</datalist>
           <span class="field-hint" id="avisoRepertorio">Al elegir una obra del banco (Fest 2025) se completa el género automáticamente.</span>
