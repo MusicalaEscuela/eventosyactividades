@@ -55,3 +55,9 @@ firebase emulators:exec --only firestore --project demo-muestras-anual --config 
 ```
 
 El segundo programa cubre catálogo público mínimo, listado privado denegado, reservas y creaciones atómicas, duplicados, fechas de cierre, estado del evento, revisiones concurrentes, campos protegidos, enlaces revocados, presentaciones incompletas, enlaces de recursos, límites y guardados con 20 presentaciones.
+
+## Avances de coordinación
+
+En Revisar ficha, **Editar / adelantar ficha** permite guardar obras, minutos, recursos e indicaciones aunque estén incompletos, incluso después de una confirmación. Coordinación elige un nuevo plazo para el docente. El guardado conserva el enlace y las inscripciones vinculadas, cambia el estado a Requiere ajustes y deja todos los documentos en una misma revisión. El docente puede continuar por su enlace durante ese plazo.
+
+Las inscripciones existentes se conservan hasta revisar y confirmar de nuevo; para reemplazar repertorio, duración y recursos, seleccionar la inscripción vinculada y marcar su actualización. La confirmación conserva las validaciones de información completa y duplicados. Los eventos cerrados y enlaces revocados siguen protegidos. Los cambios simultáneos rechazan el guardado antiguo. No requiere modificar reglas.

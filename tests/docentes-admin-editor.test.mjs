@@ -1,0 +1,47 @@
+import {createRequire} from 'node:module';
+import {homedir} from 'node:os';
+import {fileURLToPath} from 'node:url';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url);
+const {chromium}=require(`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+const page=await browser.newPage();
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.route('**/src/firebase-config.js*',r=>r.fulfill({contentType:'text/javascript',path:fileURLToPath(new URL('./firebase-mock.js',import.meta.url))}));
+await page.route('**/test-admin-editor',r=>r.fulfill({contentType:'text/html',body:'<main id="root"></main><form id="editor"></form>'}));
+const token='a'.repeat(64),path=`fichasDocentes/${token}`;
+try {
+ await page.goto('http://127.0.0.1:4173/test-admin-editor');
+ await page.evaluate(async ({token,path})=>{
+  const {createTeacherAdmin}=await import('/src/docentes-admin.js');
+  const store=window.testStore;
+  store.set('eventos/e1',{estado:'Planeado'});
+  store.set('convocatoriasDocentes/e1',{docentes:{d1:'Docente'},abierta:false});
+  store.set('convocatoriasDocentes/e1/reservas/d1',{fichaToken:token});
+  store.set(path,{eventoId:'e1',docenteId:'d1',docenteNombre:'Docente',estado:'Confirmado',revision:4,cantidadPresentaciones:1,revocada:false,asistencia:'Sí',confirmaciones:{p01:'existing'},indicacionesGenerales:'Conservar'});
+  store.set(path+'/presentaciones/p01',{revision:3,tipo:'Individual',areaArtisticaId:'musica',estudianteGrupo:'Ana',instrumento:'Canto',obrasJson:JSON.stringify([{obra:'Embrujo',minutos:2.5,compartida:true,ensambleId:'ens1'}]),repertorio:'Embrujo',duracionMin:2.5,recursos:'Piano',inscripcionId:'existing',materialUrl:''});
+  store.set('eventos/e1/muestras/existing',{estudianteGrupo:'Ana',repertorio:'Embrujo',recursos:'Piano'});
+  const form=document.querySelector('#editor');
+  createTeacherAdmin({user:()=>({email:'admin@example.com'}),people:()=>[],students:()=>[],annual:{modalityField:()=>''},modalForm:form,modal:{close(){}},toast:()=>{},setModal:(html,label)=>{form.onsubmit=null;form.innerHTML=html+(label?'<button type="submit">'+label+'</button>':'');}}).mount(document.querySelector('#root'),{id:'e1',titulo:'Muestra',estado:'Planeado'});
+ },{token,path});
+ await page.locator('#root summary').click();
+ await page.locator('[data-review-ficha]').click();
+ await page.locator('[data-edit-ficha]').click();
+ await page.locator('[data-title]').fill('Embrujo actualizado');
+ await page.locator('[data-minutes]').fill('');
+ await page.locator('[data-field="recursos"]').fill('Dos micrófonos');
+ await page.locator('[type="submit"]').click();
+ await page.locator('[data-edit-ficha]').waitFor();
+ const saved=await page.evaluate(path=>({parent:window.testStore.get(path),child:window.testStore.get(path+'/presentaciones/p01'),registration:window.testStore.get('eventos/e1/muestras/existing')}),path);
+ assert.equal(saved.parent.estado,'Requiere ajustes');assert.equal(saved.parent.revision,5);assert.equal(saved.parent.confirmaciones.p01,'existing');assert.equal(saved.child.revision,5);assert.equal(saved.child.inscripcionId,'existing');assert.equal(saved.child.recursos,'Dos micrófonos');assert.equal(JSON.parse(saved.child.obrasJson)[0].minutos,null);assert.equal(JSON.parse(saved.child.obrasJson)[0].ensambleId,'ens1');assert.equal(saved.registration.repertorio,'Embrujo');
+ assert.equal(await page.evaluate(async path=>{const {canEditFicha}=await import('/src/docentes-data.js?v=20261017-integracion');return canEditFicha(window.testStore.get(path),{abierta:false});},path),true);
+ await page.locator('[data-edit-ficha]').click();
+ await page.locator('[data-field="recursos"]').fill('Cambio antiguo');
+ await page.evaluate(path=>window.testStore.set(path,{...window.testStore.get(path),revision:6,apoyo:'Cambio simultáneo del docente'}),path);
+ await page.locator('[type="submit"]').click();
+ await page.getByText('La ficha cambió. Ábrela de nuevo para conservar los últimos cambios.').waitFor();
+ assert.equal(await page.evaluate(path=>window.testStore.get(path).apoyo,path),'Cambio simultáneo del docente');
+ assert.equal(await page.evaluate(path=>window.testStore.get(path+'/presentaciones/p01').recursos,path),'Dos micrófonos');
+ assert.deepEqual(errors,[]);
+ console.log('PASS: coordinación guarda borrador parcial confirmado; conserva vínculos, ensamble e inscripción; docente puede continuar; detecta revisión simultánea.');
+} finally {await browser.close();}

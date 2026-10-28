@@ -1,4 +1,4 @@
-import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
+import { teacherWorks, normalizeTeacherWorks } from './docentes-obras.js?v=20261017-integracion';
 import { getWorkMinutes, workDurationReference } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { buildEnsembleParticipationIndex, getEnsemblesForParticipantWork } from './ensambles-model.js?v=20261016-tiempo-por-obra';
 import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, query, where, updateDoc, serverTimestamp, Timestamp, runTransaction } from './firebase-config.js?v=20261011-docentes';
@@ -322,6 +322,50 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
       await loadFicha(newToken); await copy(fichaUrl(newToken)); toast('Nuevo enlace generado. El anterior quedó revocado.');await review(newToken);
     } catch(e){toast(e.message);}
   }
+  async function editFicha(token) {
+    setModal('<h3>Editar ficha</h3><p>Cargando…</p>', null);
+    try {
+      const loaded = await loadFicha(token);
+      const { ficha, presentaciones } = loaded;
+      const workRow = w => `<div data-work><label>Obra / actividad<input data-title maxlength="180" value="${esc(w.obra)}" /></label><label>Minutos<input data-minutes type="number" min="0" max="120" step="any" value="${w.minutos ?? ''}" /></label></div>`;
+      setModal(`<h3>Adelantar ficha de ${esc(ficha.docenteNombre)}</h3><p>Puedes guardar información incompleta. El docente continuará desde el mismo enlace. Las inscripciones del evento se actualizan al revisar y confirmar la ficha.</p><label>Permitir que el docente continúe hasta (Bogotá)<input name="hasta" type="datetime-local" required value="${dateLocal(Math.max(Date.now()+7*86400000,timestampMillis(ficha.reabiertaHasta)))}" /></label><label>Indicaciones generales<textarea name="indicacionesGenerales" maxlength="5000">${esc(ficha.indicacionesGenerales)}</textarea></label>${presentaciones.map(p => `<fieldset data-presentation="${esc(p.id)}"><legend>${esc(p.estudianteGrupo || 'Presentación')} · ${esc(p.tipo)}</legend><div data-works>${teacherWorks(p).map(workRow).join('')}</div><button type="button" data-add-work>Agregar obra / actividad</button><label>Instrumento<input data-field="instrumento" maxlength="120" value="${esc(p.instrumento)}" /></label><label>Recursos<textarea data-field="recursos" maxlength="2000">${esc(p.recursos)}</textarea></label><label>Material (enlace)<input data-field="materialUrl" maxlength="1000" value="${esc(p.materialUrl)}" /></label>${Object.entries(camposInstruccion).map(([key,label]) => `<label>${label}<textarea data-field="${key}" maxlength="${['preparacion','acompanamiento','observaciones'].includes(key)?3000:2000}">${esc(p[key])}</textarea></label>`).join('')}</fieldset>`).join('')}<p id="editResult" role="status"></p>`, 'Guardar avances y habilitar al docente');
+      modalForm.querySelectorAll('[data-add-work]').forEach(button => button.onclick = () => {
+        const container = button.closest('fieldset').querySelector('[data-works]');
+        if (container.children.length >= 20) { toast('Cada presentación admite hasta 20 obras.'); return; }
+        container.insertAdjacentHTML('beforeend', workRow({obra:'',minutos:null}));
+      });
+      modalForm.onsubmit = async e => {
+        e.preventDefault();
+        const out = modalForm.querySelector('#editResult'), button = modalForm.querySelector('[type="submit"]');
+        button.disabled = true;
+        try {
+          const until = dateValue(modalForm.elements.hasta.value);
+          if (until.toMillis() <= Date.now()) throw Error('Elige un plazo futuro para que el docente pueda continuar.');
+          const rows = presentaciones.map(p => {
+            const fieldset = modalForm.querySelector(`[data-presentation="${p.id}"]`), previous = teacherWorks(p);
+            const values = [...fieldset.querySelectorAll('[data-work]')].map((row,i) => ({...previous[i],obra:row.querySelector('[data-title]').value.trim(),minutos:row.querySelector('[data-minutes]').value === '' ? null : Number(row.querySelector('[data-minutes]').value)}));
+            if (values.some(w => !w.obra && w.minutos !== null)) throw Error('Escribe el título de la obra que tiene minutos.');
+            const fields = Object.fromEntries([...fieldset.querySelectorAll('[data-field]')].map(input => [input.dataset.field,input.value.trim()]));
+            if (fields.materialUrl && !/^https?:\/\//i.test(fields.materialUrl)) throw Error('El enlace del material debe comenzar por https:// o http://.');
+            return normalizeTeacherWorks({...p,...fields,obrasJson:JSON.stringify(values)}, false);
+          });
+          const instructions = modalForm.elements.indicacionesGenerales.value.trim();
+          const ref = doc(db,'fichasDocentes',token), revision = ficha.revision + 1;
+          await runTransaction(db, async tx => {
+            const [current,ev,reservation,...children] = await Promise.all([tx.get(ref),tx.get(doc(db,'eventos',ficha.eventoId)),tx.get(doc(db,'convocatoriasDocentes',ficha.eventoId,'reservas',ficha.docenteId)),...rows.map(p => tx.get(doc(ref,'presentaciones',p.id)))]);
+            if (!current.exists() || current.data().revocada || current.data().revision !== ficha.revision || reservation.data()?.fichaToken !== token || children.some(s => !s.exists())) throw Error('La ficha cambió. Ábrela de nuevo para conservar los últimos cambios.');
+            if (!ev.exists() || ['Realizado','No realizado','Archivado'].includes(ev.data().estado)) throw Error('Este evento está cerrado.');
+            rows.forEach(p => { const {id,...data}=p; tx.set(doc(ref,'presentaciones',id),{...data,revision,updatedAt:serverTimestamp()}); });
+            tx.update(ref,{estado:'Requiere ajustes',revision,indicacionesGenerales:instructions,reabiertaHasta:until,updatedAt:serverTimestamp(),updatedBy:user().email});
+          });
+          const saved = await loadFicha(token);
+          if (saved.ficha.revision !== revision || saved.ficha.estado !== 'Requiere ajustes' || saved.ficha.indicacionesGenerales !== instructions || timestampMillis(saved.ficha.reabiertaHasta) !== until.toMillis() || saved.presentaciones.length !== rows.length || rows.some(p => { const actual=saved.presentaciones.find(r => r.id === p.id); return !actual || actual.revision !== revision || Object.entries(p).some(([key,value]) => !['id','revision','updatedAt'].includes(key) && JSON.stringify(actual[key]) !== JSON.stringify(value)); })) throw Error('No pude verificar todos los avances. Vuelve a abrir la ficha antes de continuar.');
+          toast('Avances guardados y verificados. El docente puede continuar desde su enlace.');
+          await review(token);
+        } catch(error) { out.textContent = error.message; } finally { if(button.isConnected) button.disabled = false; }
+      };
+    } catch(error) { setModal(`<h3>No pude editar la ficha</h3><p role="alert">${esc(error.message)}</p>`,null); }
+  }
   async function review(token) {
     const eventId=event.id;
     setModal('<h3>Ficha docente</h3><p>Cargando respuestas guardadas…</p>',null);
@@ -343,8 +387,8 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
         const modality=annual.modalityField({areaArtisticaId:p.areaArtisticaId,modalidadPresentacionId:defaultModality},p.areaArtisticaId).replace('name="modalidadPresentacionId"', `data-modality="${p.id}"`);
         return `<article class="teacher-review-card"><h4>${esc(p.estudianteGrupo || 'Sin nombre')} · ${esc(p.tipo)}</h4>${p.integrantesTexto ? `<p>${esc(p.integrantesTexto).replace(/\n/g,'<br>')}</p>` : ''}<p><strong>Actividad / repertorio:</strong> ${esc(p.repertorio)}</p><p>${esc(p.areaArtisticaId)} · ${p.areaArtisticaId === 'artes-plasticas' ? `${p.cantidadObras} obra(s)` : `${p.duracionMin} min`} · ${esc(p.instrumento)}</p><p><strong>Recursos:</strong> ${esc(p.recursos || 'Sin especificar')}</p>${p.obrasJson?`<p><strong>Minutos por obra:</strong> ${teacherWorks(p).filter(w=>w.obra).map(w=>`${esc(w.obra)}: ${w.minutos??"por definir"} min${w.compartida?" (ensamble)":""}`).join(" · ")}</p>`:""}${linkedRow?`<details><summary>Comparar con la inscripción actual</summary><p>Actual: ${esc(linkedRow.repertorio||"Sin repertorio")} · ${esc(linkedRow.duracionMin??"Por definir")} min</p><p>Propuesta: ${esc(p.repertorio)} · ${esc(p.duracionMin)} min</p><p>Recursos actuales: ${esc(linkedRow.recursos||"Sin recursos")}</p><p>Los datos vacíos se completan. Para reemplazar información existente, marca la opción de actualización.</p></details>`:""}${p.materialUrl && /^https?:\/\//i.test(p.materialUrl) ? `<p><a href="${esc(p.materialUrl)}" target="_blank" rel="noopener noreferrer">Abrir material</a></p>` : ''}${Object.entries(camposInstruccion).filter(([k])=>p[k]).map(([k,label])=>`<p><strong>${label}:</strong> ${esc(p[k]).replace(/\n/g,'<br>')}</p>`).join('')}${f.estado !== 'Confirmado' ? `${modality}<label>Incorporar al evento<select data-target="${p.id}"><option value="">${matches.length ? 'Crear una presentación adicional (revisar coincidencias)' : 'Crear inscripción de esta presentación'}</option>${matches.filter(m=>m.exacta).map(m=>`<option value="${esc(m.row.id)}" ${linked===m.row.id?'selected':''}>Vincular a ${esc(m.row.estudianteGrupo)} · ${esc(m.row.repertorio || 'Sin repertorio')}</option>`).join('')}</select></label><label class="check-card"><input type="checkbox" data-update-presentation="${p.id}" />Actualizar repertorio, duración y recursos de la inscripción vinculada con esta propuesta</label>${matches.length || repetitions.length ? `<p class="teacher-duplicate-warning">Hay estudiantes presentes en otras inscripciones o propuestas: ${[...matches.map(m=>esc(m.row.estudianteGrupo)),...repetitions.map(r=>esc(r.estudianteGrupo))].join(', ')}. Vincula la ficha a una inscripción existente o confirma expresamente otra presentación.</p><label class="check-card"><input type="checkbox" data-additional="${p.id}" />Confirmo que corresponde a una presentación adicional</label>` : ''}` : ''}</article>`;
       }).join('');
-      setModal(`<h3>Ficha de ${esc(f.docenteNombre)}</h3><p>${esc(f.estado)} · Asistirá: ${esc(f.asistencia)}</p><p><strong>Apoyo:</strong> ${esc(f.apoyo)}</p><p><strong>Indicaciones generales:</strong> ${esc(f.indicacionesGenerales).replace(/\n/g,'<br>')}</p>${f.comentarioCoordinacion ? `<p><strong>Correcciones solicitadas:</strong> ${esc(f.comentarioCoordinacion)}</p>` : ''}<div class="actions"><a class="btn btn-light" href="${esc(fichaUrl(token))}" target="_blank" rel="noopener noreferrer">Ver / imprimir ficha</a><button type="button" class="btn btn-light" data-reopen>Reabrir / pedir ajustes</button><button type="button" class="btn btn-light" data-recover>Recuperar enlace privado</button></div>${f.estado !== 'Confirmado' ? cambioListado : ''}${details || '<p>Esta ficha todavía no tiene presentaciones.</p>'}<p id="reviewResult" role="status"></p>`,f.estado==='Confirmado' ? null : 'Confirmar e incorporar al evento');
-      modalForm.querySelector('[data-reopen]').onclick=()=>reopen(token);modalForm.querySelector('[data-recover]').onclick=()=>recover(token);
+      setModal(`<h3>Ficha de ${esc(f.docenteNombre)}</h3><p>${esc(f.estado)} · Asistirá: ${esc(f.asistencia)}</p><p><strong>Apoyo:</strong> ${esc(f.apoyo)}</p><p><strong>Indicaciones generales:</strong> ${esc(f.indicacionesGenerales).replace(/\n/g,'<br>')}</p>${f.comentarioCoordinacion ? `<p><strong>Correcciones solicitadas:</strong> ${esc(f.comentarioCoordinacion)}</p>` : ''}<div class="actions"><a class="btn btn-light" href="${esc(fichaUrl(token))}" target="_blank" rel="noopener noreferrer">Ver / imprimir ficha</a><button type="button" class="btn btn-light" data-edit-ficha>Editar / adelantar ficha</button><button type="button" class="btn btn-light" data-reopen>Reabrir / pedir ajustes</button><button type="button" class="btn btn-light" data-recover>Recuperar enlace privado</button></div>${f.estado !== 'Confirmado' ? cambioListado : ''}${details || '<p>Esta ficha todavía no tiene presentaciones.</p>'}<p id="reviewResult" role="status"></p>`,f.estado==='Confirmado' ? null : 'Confirmar e incorporar al evento');
+      modalForm.querySelector('[data-edit-ficha]').onclick=()=>editFicha(token);modalForm.querySelector('[data-reopen]').onclick=()=>reopen(token);modalForm.querySelector('[data-recover]').onclick=()=>recover(token);
       modalForm.onsubmit=async e=>{e.preventDefault();const out=modalForm.querySelector('#reviewResult');const button=modalForm.querySelector('[type="submit"]');button.disabled=true;out.textContent='Revisando coincidencias y guardando…';try{await confirmFicha(loaded,existing);out.textContent='Ficha confirmada e inscripciones verificadas.';toast(out.textContent);await review(token);}catch(error){out.textContent=error.message;}finally{button.disabled=false;}};
     } catch(e){setModal(`<h3>No pude cargar la ficha</h3><p role="alert">${esc(e.message)}</p>`,null);}
   }
