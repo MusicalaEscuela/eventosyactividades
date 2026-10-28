@@ -2,7 +2,7 @@ import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
 import {
   listConvocatorias, getConvocatoria, loadFicha, saveFicha, fichaUrl,
   canEditFicha, validateFichaInput, PRESENTACION_LIMITES
-} from './docentes-data.js?v=20261017-integracion';
+} from './docentes-data.js?v=20261028-validacion';
 import { normalizarNombre } from './docentes-model.js?v=20261017-integracion';
 
 const app = document.getElementById('docentesApp');
@@ -344,6 +344,7 @@ function openRosterPresentation() {
 }
 
 function revealValidationError(error) {
+  app.querySelectorAll('[data-validation-notice]').forEach(element=>element.remove());
   const message = String(error?.message || '');
   const match = /Presentaci[oó]n\s+(\d+)/i.exec(message);
   const container = match ? app.querySelector(`[data-presentation="${Number(match[1]) - 1}"]`) : null;
@@ -351,6 +352,13 @@ function revealValidationError(error) {
     if (/agrega/i.test(message)) document.getElementById('addPresentationBtn')?.focus();
     return;
   }
+  const notice=document.createElement('p');
+  notice.dataset.validationNotice='true';
+  notice.className='docentes-note';
+  notice.dataset.tone='error';
+  notice.setAttribute('role','alert');
+  notice.textContent=message;
+  container.append(notice);
   let name = 'estudianteGrupo';
   if (/cantidad de obras/i.test(message)) name = 'cantidadObras';
   else if (/enlace/i.test(message)) name = 'materialUrl';
@@ -540,6 +548,7 @@ function bindForm() {
 async function persist(estado) {
   if (state.busy || state.pendingRecovery || !state.ficha) return;
   if (!canEditFicha(state.ficha, state.convocatoria)) { setStatus(readonlyReason(), 'warning'); setEditable(false); return; }
+  app.querySelectorAll('[data-validation-notice]').forEach(element=>element.remove());
   const previousPresentations = readPresentations();
   const previousRoster = rosterRows();
   const payload = readForm(estado);

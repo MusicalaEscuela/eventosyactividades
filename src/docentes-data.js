@@ -60,7 +60,13 @@ export function validateFichaInput(input) {
     throw error('validacion', `La ficha admite hasta ${MAX_PRESENTACIONES} presentaciones.`);
   }
   const presentaciones = input.presentaciones.map((inputPresentation, i) => {
-    const p=normalizeTeacherWorks(inputPresentation,estado==='Enviado');
+    let p;
+    try {
+      p=normalizeTeacherWorks(inputPresentation,estado==='Enviado');
+    } catch (cause) {
+      const name=String(inputPresentation.estudianteGrupo||'').trim();
+      throw error('validacion', `Presentación ${i + 1}${name ? ' · '+name : ''}: ${cause.message || 'Revisa las obras y sus duraciones.'}`);
+    }
     const tipo = p.tipo || 'Individual';
     const areaArtisticaId = p.areaArtisticaId || 'musica';
     if (!['Individual', 'Ensamble'].includes(tipo) || !AREAS.includes(areaArtisticaId)) {
