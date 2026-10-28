@@ -1,3 +1,4 @@
+import { createSetlist } from './setlist.js?v=20261028-setlist-1';
 import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
@@ -150,6 +151,7 @@ const sampleRoutes = createSampleRoutes({user:()=>state.user,students:()=>state.
   if(modal.open&&$('#pickerLista')&&state.picker){$('#pickerLista').innerHTML=renderPickerLista();actualizarPickerPie();}
 }});
 const scores = createScores({context:()=>({event:state.selectedEvent, presentations:eventPresentations(), rows:state.childData.partituras, user:state.user}),setModal,modalForm,modal,toast});
+const setlist = createSetlist({context:()=>({event:state.selectedEvent,presentations:eventPresentations(),rows:state.childData.muestras,user:state.user}),toast,onChange:()=>renderDetail()});
 const stagePlots = createStagePlots({
   context: () => ({event:state.selectedEvent, presentations:eventPresentations(), participants:state.childData.muestras}),
   toast,
@@ -1350,6 +1352,7 @@ function renderDetail() {
   const tabs = [
     ["actividades", "Actividades"],
     ["muestras", "Participantes"],
+    ["setlist", "Setlist / Orden"],
     ["programacion", "Minuto a minuto"],
     ["equipo", "Equipo"],
     ["rider", "Rider técnico"],
@@ -1400,7 +1403,7 @@ function renderDetail() {
     <section class="panel">
       <div class="row-between">
         <div class="tabs">
-          ${tabs.map(([key, label]) => `<button class="tab-btn ${state.tab === key ? "active" : ""}" data-tab="${key}">${label} (${state.childData[key].length})</button>`).join("")}
+          ${tabs.map(([key, label]) => `<button class="tab-btn ${state.tab === key ? "active" : ""}" data-tab="${key}">${label} (${key==='setlist'?eventPresentations().filter(row=>row.areaArtisticaId!=='artes-plasticas').length:state.childData[key].length})</button>`).join("")}
         </div>
         <div class="top-actions">
           ${permiteTablero ? `
@@ -1412,7 +1415,7 @@ function renderDetail() {
             <button class="btn btn-ghost" data-action="pick-students">👥 Del padrón</button>
             <button class="btn btn-ghost" data-action="new-ensemble">🎻 Ensamble</button>
             <button class="btn btn-ghost" data-action="config-participant-lists">⚙️ Configurar listas</button>` : ""}
-          <button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>
+          ${state.tab!=="setlist"?`<button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>`:""}
         </div>
       </div>
       ${state.tab === "muestras" ? resumenRepertorio()+participantControls() : ""}
@@ -1439,6 +1442,7 @@ function renderDetail() {
   }));
   attachBoardDragAndDrop();
   teacherAdmin.mount($("#teacherAdminPanel"), evento);
+  if (state.tab === "setlist") setlist.mount(eventDetail);
   if (state.tab === "rider") stagePlots.mount($("#stagePlotsPanel"));
   if (state.tab === "partituras") scores.mount(eventDetail);
 }
@@ -1568,6 +1572,7 @@ function participantVisibleRows(rows){
 }
 
 function renderTabContent(tab) {
+  if(tab === "setlist")return setlist.render();
   if (tab === "partituras") return scores.render();
   if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
   const rows = state.childData[tab] || [];
@@ -1616,7 +1621,7 @@ function renderTabContent(tab) {
       escapeHtml(annualSystem.areaName(row.areaArtisticaId, row.area || "Música")),
       participantIsEnsemble(row)?`<details><summary>Ruta de cada integrante</summary>${normalizeEnsembleMembers(row.integrantes).map(member=>`<div><strong>${escapeHtml(member.nombre)}</strong>${sampleRoutes.summary(member,row.areaArtisticaId||'musica',row)}</div>`).join('')}</details>`:sampleRoutes.summary(row,row.areaArtisticaId||'musica',row),
       escapeHtml(annualSystem.modalityName(row.areaArtisticaId || "musica", row.modalidadPresentacionId || row.familiaInstrumentalId, row.modalidadPresentacionNombre || row.familiaInstrumentalNombre || "Sin asignar")),
-      participantWorks(row).map(obra => participantWorkCell(row, obra, conteoObras)).join(''),
+      setlist.orderedWorks(row,participantWorks(row)).map(obra => participantWorkCell(row, obra, conteoObras)).join(''),
       getParticipantWorks(row).map(work=>({work,genre:workGenre(row,work)})).filter(item=>item.genre!=="Sin definir").map(item=>`<div><small>${escapeHtml(item.work)}</small><br><span class="badge info">${escapeHtml(item.genre)}</span></div>`).join(""),
       escapeHtml(row.docente || ""),
       escapeHtml(row.bloque || ""),
@@ -3435,7 +3440,7 @@ function attachGlobalEvents() {
     state.peopleDialogOpen = false;
   });
   $("#exportAllBtn").addEventListener("click", exportAllEvents);
-  $("#printBtn").addEventListener("click", () => window.print());
+  $("#printBtn").addEventListener("click", () => state.tab==='setlist'?setlist.print():window.print());
   ["#searchInput", "#typeFilter", "#statusFilter"].forEach(selector => $(selector).addEventListener("input", applyFilters));
   eventDetail.addEventListener("click", event => {
     const routeTarget=event.target.closest("[data-sample-route]");
