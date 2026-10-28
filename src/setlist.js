@@ -3,6 +3,7 @@ import {getWorkMinutes,formatWorkTime} from './obras-duracion.js?v=20261024-obra
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
+const stable=value=>JSON.stringify(value,(key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(k=>[k,item[k]])):item);
 const states={pendiente:'Por llamar',llamado:'Llamado',escena:'En escena',terminado:'Terminado',omitido:'Omitido'};
 const order=(values,saved=[])=>[...values].sort((a,b)=>{const x=saved.indexOf(a),y=saved.indexOf(b);return (x<0?saved.length:x)-(y<0?saved.length:y);});
 
@@ -32,10 +33,10 @@ export function createSetlist({context,toast,onChange}){
   }
   async function save(change){
     if(busy)return;busy=true;
-    const ctx=context(),ref=doc(db,'eventos',ctx.event.id),baseline=JSON.stringify(ctx.event.setlist||{});
+    const ctx=context(),ref=doc(db,'eventos',ctx.event.id),baseline=stable(ctx.event.setlist||{});
     try{
       let saved;
-      await runTransaction(db,async tx=>{const snapshot=await tx.get(ref);if(!snapshot.exists())throw Error('No se encontró el evento.');if(JSON.stringify(snapshot.data().setlist||{})!==baseline)throw Error('El setlist cambió en otra ventana. Reabre la pestaña Setlist y vuelve a realizar el cambio.');const data=structuredClone(snapshot.data().setlist||{});change(data);if(new TextEncoder().encode(JSON.stringify(data)).length>180000)throw Error('El setlist supera el tamaño permitido.');tx.update(ref,{setlist:data,updatedAt:serverTimestamp(),updatedBy:ctx.user.email});saved=data;});
+      await runTransaction(db,async tx=>{const snapshot=await tx.get(ref);if(!snapshot.exists())throw Error('No se encontró el evento.');if(stable(snapshot.data().setlist||{})!==baseline)throw Error('El setlist cambió en otra ventana. Reabre la pestaña Setlist y vuelve a realizar el cambio.');const data=structuredClone(snapshot.data().setlist||{});change(data);if(new TextEncoder().encode(JSON.stringify(data)).length>180000)throw Error('El setlist supera el tamaño permitido.');tx.update(ref,{setlist:data,updatedAt:serverTimestamp(),updatedBy:ctx.user.email});saved=data;});
       if(context().event?.id===ctx.event.id){context().event.setlist=saved;onChange();}toast('Setlist guardado.');
     }catch(error){toast(error.message||'No se pudo guardar el setlist.');onChange();}finally{busy=false;}
   }
