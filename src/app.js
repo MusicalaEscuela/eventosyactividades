@@ -1,4 +1,4 @@
-import { createSetlist } from './setlist.js?v=20261028-setlist-1';
+import { createSetlist } from './setlist.js?v=20261028-setlist-2';
 import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
