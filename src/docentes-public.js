@@ -1,15 +1,31 @@
 import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
+import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261028-guiado';
+
+function resourceFields(value=''){
+  const selected=String(value).split(',').map(v=>v.trim()).filter(Boolean);
+  return `<div class="docentes-wide"><p>Equipos concretos necesarios</p><div class="docentes-grid">${[...TEACHER_RESOURCES,'No requiere recursos adicionales'].map(resource=>`<label><input type="checkbox" data-resource value="${esc(resource)}" ${selected.includes(resource)?'checked':''} />${esc(resource)}</label>`).join('')}</div></div>${field('Otros recursos o detalles', 'recursos', selected.filter(v=>!TEACHER_RESOURCES.includes(v)&&v!=='No requiere recursos adicionales').join(', '), {textarea:true,placeholder:'Solo necesidades que no estén en la lista'})}`;
+}
+
+function executionFields(data,index){
+ const starts=['Empieza solo','Espera señal del docente','Empieza con la pista','Otro'];
+ const start=starts.find(v=>String(data.inicio||'').startsWith(v))||'';
+ const detail=start?String(data.inicio).slice(start.length).replace(/^:\s*/,''):data.inicio||'';
+ const accompaniment=String(data.acompanamiento||'');
+ const no=accompaniment==='No requiere acompañamiento';
+ const match=/^Sí · Docente: (.*?) · Función: ([\s\S]*)$/.exec(accompaniment);
+ return `<label>¿Cómo comienza?<select data-start-choice><option value="">Por definir</option>${starts.map(v=>option(v,v,start)).join('')}</select></label>${field('Detalle de inicio (necesario si eliges Otro)', 'inicio', detail,{textarea:true,placeholder:'Quién da la entrada, cuándo iniciar la pista…'})}<label>¿Necesita acompañamiento?<select data-support-choice>${['Por confirmar','Sí','No'].map(v=>option(v,v,no?'No':match?'Sí':'Por confirmar')).join('')}</select></label><label>Docente que acompañará<input data-support-teacher list="supportNames${index}" maxlength="160" value="${esc(match?.[1]||'')}" placeholder="Nombre del docente" /><datalist id="supportNames${index}">${[...new Set([...Object.values(state.convocatoria?.docentes||{}),state.ficha?.docenteNombre].filter(Boolean))].map(name=>`<option value="${esc(name)}"></option>`).join('')}</datalist></label><label>¿Cómo acompañará?<textarea data-support-role maxlength="1500" placeholder="Piano, segunda voz, entradas…">${esc(match?.[2]||(!no?accompaniment:''))}</textarea></label><input type="hidden" name="acompanamiento" value="${esc(accompaniment)}" />`;
+}
 import {
   listConvocatorias, getConvocatoria, loadFicha, saveFicha, fichaUrl,
   canEditFicha, validateFichaInput, PRESENTACION_LIMITES
-} from './docentes-data.js?v=20261028-validacion';
-import { normalizarNombre } from './docentes-model.js?v=20261017-integracion';
+} from './docentes-data.js?v=20261028-guiado';
+import { normalizarNombre } from './docentes-model.js?v=20261028-guiado';
 
 const app = document.getElementById('docentesApp');
 const storageKey = 'musicala.eventos.fichas-docentes.v1';
 const state = { convocatorias: [], convocatoria: null, ficha: null, token: null, revision: 0, busy: false, dirty: false, pendingRecovery: false, presentations: [], localLinks: readLocalLinks() };
 const areas = [['musica', 'Música'], ['danza', 'Danza'], ['teatro', 'Teatro'], ['artes-plasticas', 'Artes plásticas']];
-const blankPresentation = () => ({ obrasJson:'', inscripcionId:'', tipo: 'Individual', estudianteGrupo: '', integrantesTexto: '', areaArtisticaId: 'musica', instrumento: '', repertorio: '', duracionMin: '', cantidadObras: 1, recursos: '', materialUrl: '', preparacion: '', entrada: '', inicio: '', acompanamiento: '', cierre: '', observaciones: '' });
+const blankPresentation = () => ({ participacionEstado:'Por confirmar', obrasJson:'', inscripcionId:'', tipo: 'Individual', estudianteGrupo: '', integrantesTexto: '', areaArtisticaId: 'musica', instrumento: '', repertorio: '', duracionMin: '', cantidadObras: 1, recursos: '', materialUrl: '', preparacion: '', entrada: '', inicio: '', acompanamiento: '', cierre: '', observaciones: '' });
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const option = (value, label, selected) => `<option value="${esc(value)}"${String(selected) === String(value) ? ' selected' : ''}>${esc(label)}</option>`;
 const timestampDate = value => value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00-05:00`) : value ? new Date(value) : null;
@@ -192,19 +208,22 @@ function rosterHtml() {
 
 function presentationSummary(data) {
   const work = String(data.repertorio || '').trim().replace(/\s+/g, ' ');
-  const duration = data.areaArtisticaId === 'artes-plasticas' ? `${Number(data.cantidadObras || 1)} obra(s)` : data.duracionMin !== '' && data.duracionMin != null ? `${data.duracionMin} min` : '';
+  const duration = data.areaArtisticaId === 'artes-plasticas' ? `${Number(data.cantidadObras || 1)} obra(s)` : data.duracionMin !== '' && data.duracionMin != null ? `${Math.floor(Math.round(Number(data.duracionMin)*60)/60)}:${String(Math.round(Number(data.duracionMin)*60)%60).padStart(2,'0')} (min:seg)` : '';
   return [work || 'Obra por completar', duration].filter(Boolean).join(' · ');
 }
 
 function teacherWorkHtml(work={obra:'',minutos:null}) {
-  return `<div data-teacher-work data-shared="${work.compartida?'1':''}" data-ensemble="${esc(work.ensambleId||'')}" style="display:grid;grid-template-columns:minmax(0,1fr) 110px auto;gap:8px;margin:10px 0"><label>Obra / actividad<input name="obraTitulo" maxlength="180" value="${esc(work.obra)}" ${work.compartida?'readonly':''} /></label><label>Minutos<input name="obraMinutos" type="number" min="0" max="120" step="any" value="${esc(work.minutos??'')}" ${work.compartida?'readonly':''} placeholder="Por definir" /></label><button type="button" data-remove-work ${work.compartida?'disabled':''}>Quitar</button>${work.compartida?'<small style="grid-column:1/-1">Tiempo compartido: se completa en la presentación del ensamble y se cuenta una sola vez.</small>':''}</div>`;
+  const seconds=work.minutos==null?null:Math.round(Number(work.minutos)*60);
+  const result=`<div data-teacher-work data-shared="${work.compartida?'1':''}" data-ensemble="${esc(work.ensambleId||'')}" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><label style="flex:1;min-width:180px">Obra / actividad<input name="obraTitulo" maxlength="180" value="${esc(work.obra)}" ${work.compartida?'readonly':''} /></label><label>Minutos<input name="obraMinutos" type="number" min="0" max="120" step="1" value="${seconds===null?'':Math.floor(seconds/60)}" ${work.compartida?'readonly':''} /></label><label>Segundos<input name="obraSegundos" type="number" min="0" max="59" step="1" value="${seconds===null?'':seconds%60}" ${work.compartida?'readonly':''} /></label><button type="button" data-remove-work ${work.compartida?'disabled':''}>Quitar</button>${work.compartida?'<small>Tiempo compartido: se completa en el ensamble.</small>':''}</div>`;
+  return result;
+
 }
 function syncTeacherWorks(container){
-  const values=[...container.querySelectorAll('[data-teacher-work]')].map(item=>({obra:item.querySelector('[name="obraTitulo"]').value.trim(),minutos:item.querySelector('[name="obraMinutos"]').value===''?null:Number(item.querySelector('[name="obraMinutos"]').value),...(item.dataset.shared?{compartida:true,ensambleId:item.dataset.ensemble||''}:{})}));
+  const values=[...container.querySelectorAll('[data-teacher-work]')].map(item=>({obra:item.querySelector('[name="obraTitulo"]').value.trim(),minutos:item.querySelector('[name="obraMinutos"]').value===''&&item.querySelector('[name="obraSegundos"]').value===''?null:(Number(item.querySelector('[name="obraMinutos"]').value)*60+Number(item.querySelector('[name="obraSegundos"]').value||0))/60,...(item.dataset.shared==='1'?{compartida:true,ensambleId:item.dataset.ensemble||''}:{})}));
   container.querySelector('[name="obrasJson"]').value=JSON.stringify(values);
   container.querySelector('[name="repertorio"]').value=values.filter(w=>w.obra).map(w=>w.obra).join(' / ');
   container.querySelector('[name="duracionMin"]').value=values.reduce((sum,w)=>sum+(w.minutos||0),0);
-  container.querySelector('[data-work-total]').textContent='Total de las obras: '+values.reduce((sum,w)=>sum+(w.minutos||0),0)+' min';
+  const totalSeconds=Math.round(values.reduce((sum,w)=>sum+(w.minutos||0),0)*60);container.querySelector('[data-work-total]').textContent='Total de las obras: '+Math.floor(totalSeconds/60)+':'+String(totalSeconds%60).padStart(2,'0')+' (min:seg)';
 }
 function presentationHtml(data, index) {
   const absent = document.getElementById('teacherForm')?.elements.asistencia?.value === 'No' || (!document.getElementById('teacherForm') && state.ficha?.asistencia === 'No');
@@ -217,31 +236,32 @@ function presentationHtml(data, index) {
     <summary><span class="docentes-summary-name">${index + 1}. <span data-presentation-title>${esc(data.estudianteGrupo || 'Nueva presentación')}</span></span><span class="docentes-summary-work" data-presentation-summary>${esc(presentationSummary(data))}</span><span data-instruction-warning class="docentes-summary-warning${missingInstructions ? '' : ' hidden'}">Completa preparación e inicio</span></summary>
     <div class="docentes-presentation-body">
       <div class="docentes-grid">
-        ${field('Estudiante o nombre del ensamble', 'estudianteGrupo', data.estudianteGrupo, { max: 240, wide: true, placeholder: 'Nombre completo o nombre del grupo' })}
+        ${field('Estudiante o nombre del ensamble', 'estudianteGrupo', data.estudianteGrupo, { max: 180, wide: true, placeholder: 'Nombre completo o nombre del grupo' })}
+        <label>Participación del estudiante<select name="participacionEstado">${['Por confirmar','Participará','No participará'].map(v=>option(v,v,data.participacionEstado||'Por confirmar')).join('')}</select></label>
+        ${data.inscripcionId && Array.isArray(state.ficha?.estudiantesPrecargados) && !rosterRows().some(source=>source.inscripcionId===data.inscripcionId)?'<p class="docentes-note" data-tone="warning">Esta inscripción ya no figura en tu listado asignado. Puede haber cambiado de docente. Consulta a coordinación; no necesitas volver a completar su repertorio. Marca No participará en esta ficha si ya no te corresponde.</p>':''}
         <input type="hidden" name="inscripcionId" value="${esc(data.inscripcionId||source?.inscripcionId||'')}" /><input type="hidden" name="obrasJson" value="${esc(data.obrasJson||'')}" /><input type="hidden" name="repertorio" value="${esc(data.repertorio||'')}" /><input type="hidden" name="duracionMin" value="${esc(data.duracionMin||0)}" />
-        <div class="docentes-wide"><h4>Obras y minutos</h4><div data-teacher-works>${teacherWorks(data).map(teacherWorkHtml).join('')}</div><button type="button" class="btn btn-light" data-add-work>+ Agregar obra</button><p data-work-total class="docentes-help">Total de las obras: ${esc(data.duracionMin||0)} min</p><p class="docentes-help">Confirma lo registrado o completa lo que falta. En Artes plásticas los minutos son opcionales.</p></div>
+        <div class="docentes-wide"><h4>Obras y minutos</h4><div data-teacher-works>${teacherWorks(data).map(teacherWorkHtml).join('')}</div><button type="button" class="btn btn-light" data-add-work>+ Agregar obra</button><p data-work-total class="docentes-help">Total de las obras: ${Math.floor(Math.round(Number(data.duracionMin||0)*60)/60)}:${String(Math.round(Number(data.duracionMin||0)*60)%60).padStart(2,'0')} (min:seg)</p><p class="docentes-help">Confirma lo registrado o completa lo que falta. En Artes plásticas los minutos son opcionales.</p></div>
         <label class="${data.areaArtisticaId === 'artes-plasticas' ? '' : 'hidden'}" data-artwork-label>Cantidad de obras a exhibir<input name="cantidadObras" type="number" min="1" max="20" step="1" value="${esc(data.cantidadObras || 1)}" /><small>Entre 1 y 20 obras.</small></label>
       </div>
       <details class="docentes-disclosure"><summary>Tipo, área, instrumento e integrantes</summary><div class="docentes-grid">
         <label>Tipo de presentación<select name="tipo">${['Individual', 'Ensamble'].map(value => option(value, value, data.tipo)).join('')}</select></label>
         <label>Área artística<select name="areaArtisticaId">${areas.map(([id, label]) => option(id, label, data.areaArtisticaId)).join('')}</select></label>
-        ${field('Instrumento o disciplina', 'instrumento', data.instrumento, { max: 240, placeholder: 'Piano, violín, ballet, teatro…' })}
+        ${field('Instrumento o disciplina', 'instrumento', data.instrumento, { max: 120, placeholder: 'Piano, violín, ballet, teatro…' })}
         <label class="docentes-wide${data.tipo === 'Ensamble' ? '' : ' hidden'}" data-members-label>Integrantes del ensamble<textarea name="integrantesTexto" maxlength="3000" placeholder="Un nombre completo por línea">${esc(data.integrantesTexto)}</textarea><small>Incluye al menos dos integrantes, uno por línea.</small></label>
         ${memberInstruments}
       </div></details>
       <details class="docentes-disclosure"><summary>Recursos y material de apoyo</summary><div class="docentes-grid">
-        ${field('Recursos que necesita', 'recursos', data.recursos, { textarea: true, placeholder: 'Instrumentos, micrófonos, sillas, atriles, utilería…' })}
-        ${field('Enlace a pista, partitura o referencia', 'materialUrl', data.materialUrl, { type: 'url', max: 2000, placeholder: 'https://…', help: 'Revisa que coordinación pueda abrirlo.' })}
+        ${resourceFields(data.recursos)}
+        ${field('Enlace a pista, partitura o referencia', 'materialUrl', data.materialUrl, { type: 'url', max: 1000, placeholder: 'https://…', help: 'Revisa que coordinación pueda abrirlo.' })}
       </div></details>
       <details class="docentes-disclosure docentes-instructions" data-execution-instructions${absent ? ' open' : ''}><summary data-instructions-label>${absent ? 'Instrucciones si no estarás presente' : 'Indicaciones para realizar la presentación'}</summary>
         <p class="docentes-help" data-required-help${absent ? '' : ' hidden'}>Para enviar la ficha, completa la preparación y la señal de inicio para quien acompañe tu ausencia.</p>
         <div class="docentes-grid">
           ${field('Preparación antes de salir', 'preparacion', data.preparacion, { textarea: true, placeholder: 'Qué revisar, cómo afinar, material listo, prueba de sonido…' })}
-          ${field('Señal de inicio', 'inicio', data.inicio, { textarea: true, placeholder: 'Ej.: iniciar la pista en el segundo 12 y dar cuatro tiempos.' })}
+          ${executionFields(data,index)}
         </div>
         <details class="docentes-disclosure"><summary>Entrada, acompañamiento, cierre y otras indicaciones</summary><div class="docentes-grid">
           ${field('Entrada y ubicación en escena', 'entrada', data.entrada, { textarea: true, placeholder: 'Por dónde entra, dónde se ubica y quién ayuda.' })}
-          ${field('Acompañamiento durante la presentación', 'acompanamiento', data.acompanamiento, { textarea: true, placeholder: 'Quién acompaña y qué debe hacer si el estudiante se detiene.' })}
           ${field('Cierre y salida', 'cierre', data.cierre, { textarea: true, placeholder: 'Cómo termina, saludo y retiro del material.' })}
           ${field('Otras cosas a tener en cuenta', 'observaciones', data.observaciones, { textarea: true, placeholder: 'Necesidades de apoyo o indicaciones adicionales.' })}
         </div></details>
@@ -257,7 +277,7 @@ function updatePresentationSummary(container) {
   const data = Object.fromEntries(['repertorio', 'duracionMin', 'cantidadObras', 'areaArtisticaId'].map(key => [key, container.querySelector(`[name="${key}"]`).value]));
   container.querySelector('[data-presentation-summary]').textContent = presentationSummary(data);
   const absent = document.getElementById('teacherForm').elements.asistencia.value === 'No';
-  const missing = absent && (!container.querySelector('[name="preparacion"]').value.trim() || !container.querySelector('[name="inicio"]').value.trim());
+  const missing = absent && (!container.querySelector('[name="preparacion"]').value.trim() || !container.querySelector('[data-start-choice]')?.value);
   container.querySelector('[data-instruction-warning]').classList.toggle('hidden', !missing);
 }
 
@@ -413,7 +433,7 @@ function renderForm(savedMessage = '', showPrivateLink = false) {
       <div id="presentationsList">${state.presentations.map(presentationHtml).join('')}</div>
       <p id="presentationCount" class="docentes-help">${state.presentations.length} de 20 presentaciones</p>
     </section>
-  </fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Envía a coordinación cuando la ficha esté lista para revisar.</p></section></form>${footer}`;
+  </fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Revisar y enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Envía a coordinación cuando la ficha esté lista para revisar.</p></section></form>${footer}`;
   setEditable(editable);
   bindForm();
   updateAttendanceDetails();
@@ -439,6 +459,12 @@ function readPresentations() {
     syncTeacherWorks(container);
     const data = {};
     container.querySelectorAll('[name]').forEach(element => { if (!Object.hasOwn(blankPresentation(), element.name)) return; data[element.name] = ['duracionMin', 'cantidadObras'].includes(element.name) ? Number(element.value || (element.name === 'cantidadObras' ? 1 : 0)) : element.value.trim(); });
+    const resources=[...container.querySelectorAll('[data-resource]:checked')].map(input=>input.value);
+    data.recursos=[...resources,data.recursos].filter(Boolean).join(', ');
+    const start=container.querySelector('[data-start-choice]')?.value||'';
+    data.inicio=start+(data.inicio?': '+data.inicio:'');
+    const support=container.querySelector('[data-support-choice]')?.value;
+    data.acompanamiento=support==='No'?'No requiere acompañamiento':support==='Sí'?'Sí · Docente: '+container.querySelector('[data-support-teacher]').value.trim()+' · Función: '+container.querySelector('[data-support-role]').value.trim():'';
     const sourceIndex = container.dataset.rosterIndex;
     if (sourceIndex != null && /^\d+$/.test(sourceIndex) && rosterRows()[Number(sourceIndex)]) data._rosterIndex = Number(sourceIndex);
     if (data.tipo !== 'Ensamble') data.integrantesTexto = '';
@@ -477,16 +503,17 @@ function bindForm() {
     if(!add&&!remove || state.busy || !canEditFicha(state.ficha,state.convocatoria))return;
     const container=event.target.closest('[data-presentation]');
     if(add){if(container.querySelectorAll('[data-teacher-work]').length>=20)return;container.querySelector('[data-teacher-works]').insertAdjacentHTML('beforeend',teacherWorkHtml());}
-    else {if(remove.closest('[data-teacher-work]').dataset.shared)return;remove.closest('[data-teacher-work]').remove();}
+    else {if(remove.closest('[data-teacher-work]').dataset.shared==='1')return;remove.closest('[data-teacher-work]').remove();}
     syncTeacherWorks(container);markDirty();updatePresentationSummary(container);
   });
   form.addEventListener('input', event => {
-    if (!event.target.name) return;
+    if (!event.target.name && !event.target.matches('[data-resource],[data-start-choice],[data-support-choice],[data-support-teacher],[data-support-role]')) return;
     markDirty();
     const presentation = event.target.closest('[data-presentation]');
     if (presentation) { syncTeacherWorks(presentation); updatePresentationSummary(presentation); }
   });
   form.addEventListener('change', event => {
+    if(event.target.matches('[data-resource]')&&event.target.checked){const box=event.target.closest('[data-presentation]');box.querySelectorAll('[data-resource]').forEach(input=>{if(input!==event.target&&(event.target.value==='No requiere recursos adicionales'||input.value==='No requiere recursos adicionales'))input.checked=false;});}
     if (!event.target.name) return;
     markDirty();
     if (event.target.name === 'asistencia') updateAttendanceDetails();
@@ -545,13 +572,42 @@ function bindForm() {
   document.getElementById('downloadPrivateLink')?.addEventListener('click', downloadLink);
 }
 
-async function persist(estado) {
+async function persist(estado,reviewed=false) {
   if (state.busy || state.pendingRecovery || !state.ficha) return;
   if (!canEditFicha(state.ficha, state.convocatoria)) { setStatus(readonlyReason(), 'warning'); setEditable(false); return; }
   app.querySelectorAll('[data-validation-notice]').forEach(element=>element.remove());
+  const invalidTime=[...app.querySelectorAll('[name="obraMinutos"],[name="obraSegundos"]')].find(input=>!input.validity.valid);
+  if(invalidTime){setStatus('Usa minutos enteros y segundos de 0 a 59. Por ejemplo: 3 minutos y 22 segundos.','error');invalidTime.closest('details').open=true;invalidTime.focus();return;}
   const previousPresentations = readPresentations();
   const previousRoster = rosterRows();
   const payload = readForm(estado);
+  if(reviewed&&document.getElementById('preflightReview')?.dataset.signature!==JSON.stringify(payload))reviewed=false;
+  if(estado==='Enviado'&&!reviewed){
+    const issues=[];
+    if(payload.asistencia==='Por confirmar')issues.push({message:'Confirma si asistirás a la muestra.'});
+    payload.presentaciones.forEach((p,index)=>{
+      const fail=message=>issues.push({index,message:`Presentación ${index+1} · ${p.estudianteGrupo||'Sin nombre'}: ${message}`});
+      if(p.participacionEstado==='Por confirmar')fail('Indica si participará o no participará.');
+      if(!p.estudianteGrupo)fail('Indica el nombre del estudiante o ensamble.');
+      if(p.participacionEstado==='No participará')return;
+      if(p.inscripcionId&&Array.isArray(state.ficha.estudiantesPrecargados)&&!rosterRows().some(source=>source.inscripcionId===p.inscripcionId))fail('La inscripción ya no está asignada en tu listado. Consulta a coordinación o marca No participará en esta ficha.');
+      try{validateFichaInput({...payload,presentaciones:[p]});}catch(error){fail(error.message.replace(/^Presentación 1(?: · [^:]+)?:\s*/,''));}
+      if(!p.recursos)fail('Selecciona los recursos o marca No requiere recursos adicionales.');
+      if(!/^(Empieza solo|Espera señal del docente|Empieza con la pista|Otro)/.test(p.inicio)||p.inicio==='Otro')fail('Selecciona cómo inicia y detalla la opción Otro.');
+      if(!p.acompanamiento||(p.acompanamiento!=='No requiere acompañamiento'&&!/^Sí · Docente: \S[\s\S]* · Función: \S[\s\S]*$/.test(p.acompanamiento)))fail('Define si necesita acompañamiento. Si es Sí, indica docente y función.');
+    });
+    let box=document.getElementById('preflightReview');
+    if(!box){box=document.createElement('section');box.id='preflightReview';box.className='docentes-card';document.querySelector('.docentes-savebar').before(box);}
+    if(issues.length){
+      box.innerHTML='<h2>Pendientes antes de enviar ('+issues.length+')</h2>'+issues.map((issue,i)=>'<p><button type="button" data-issue="'+i+'">'+esc(issue.message)+'</button></p>').join('');
+      box.querySelectorAll('[data-issue]').forEach(button=>button.onclick=()=>{const issue=issues[Number(button.dataset.issue)];if(issue.index!=null)revealValidationError({message:issue.message});else document.querySelector('[name="asistencia"]').focus();});
+      box.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Faltan '+issues.length+' punto(s). Tus cambios siguen aquí; puedes guardarlos como borrador.','warning');return;
+    }
+    box.innerHTML='<h2>Revisa antes de enviar</h2><p>Asistencia docente: '+esc(payload.asistencia)+'</p>'+payload.presentaciones.map(p=>'<article><h3>'+esc(p.estudianteGrupo)+' · '+esc(p.participacionEstado)+'</h3>'+(p.participacionEstado==='No participará'?'<p>No se incorporará como nueva presentación.</p>':'<p>'+esc(p.repertorio)+'</p><p>Duración: '+Math.floor(Math.round(p.duracionMin*60)/60)+':'+String(Math.round(p.duracionMin*60)%60).padStart(2,'0')+' (min:seg)</p><p>Recursos: '+esc(p.recursos)+'</p><p>Inicio: '+esc(p.inicio)+'</p><p>Acompañamiento: '+esc(p.acompanamiento)+'</p>')+'</article>').join('')+'<button type="button" class="btn btn-primary" id="confirmTeacherSend">Confirmar y enviar a coordinación</button><button type="button" class="btn btn-light" id="cancelTeacherSend">Volver a corregir</button>';
+    box.dataset.signature=JSON.stringify(payload);
+    document.getElementById('confirmTeacherSend').onclick=()=>persist('Enviado',true);
+    document.getElementById('cancelTeacherSend').onclick=()=>box.remove();box.scrollIntoView({behavior:'smooth',block:'start'});return;
+  }
   try { validateFichaInput(payload); } catch (error) { setStatus(errorText(error), 'error'); revealValidationError(error); return; }
   state.busy = true;
   setEditable(false);

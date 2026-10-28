@@ -2,10 +2,10 @@ import { teacherWorks, normalizeTeacherWorks } from './docentes-obras.js?v=20261
 import { getWorkMinutes, workDurationReference } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { buildEnsembleParticipationIndex, getEnsemblesForParticipantWork } from './ensambles-model.js?v=20261016-tiempo-por-obra';
 import { db, collection, doc, getDocFromServer, getDocsFromServer, onSnapshot, query, where, updateDoc, serverTimestamp, Timestamp, runTransaction } from './firebase-config.js?v=20261011-docentes';
-import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js?v=20261017-integracion';
-import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js?v=20261017-integracion';
+import { loadFicha, fichaUrl, timestampMillis } from './docentes-data.js?v=20261028-guiado';
+import { coincidenciasPresentacion, validarFichaParaConfirmar, muestraDesdeFicha, instruccionesDocentes, normalizarNombre, nombresPresentacion } from './docentes-model.js?v=20261028-guiado';
 import { buildTeacherOptions } from './eventos-context.js?v=20261017-personas';
-import { buildTeacherPreload, preloadMatchesPresentation, samePreload, planMissingPresentations } from './docentes-preload.js?v=20261017-integracion';
+import { buildTeacherPreload, preloadMatchesPresentation, samePreload, planMissingPresentations } from './docentes-preload.js?v=20261028-guiado';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const camposInstruccion = { preparacion:'Preparación', entrada:'Entrada a escena', inicio:'Señal de inicio', acompanamiento:'Acompañamiento', cierre:'Cierre', observaciones:'Observaciones' };
@@ -375,6 +375,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
       const anteriores=inscripcionesAnteriores(f,loaded.presentaciones,existing);
       const cambioListado=anteriores.length ? `<aside class="teacher-duplicate-warning"><p>Estas inscripciones confirmadas ya no coinciden con la ficha: ${anteriores.map(r=>esc(r.estudianteGrupo)).join(', ')}. Puedes ajustarlas o eliminarlas desde Participantes antes de confirmar.</p><label class="check-card"><input type="checkbox" data-keep-previous />Conservar estas inscripciones anteriores en el evento</label></aside>` : '';
       const details=loaded.presentaciones.map((p,index)=>{
+        if(p.participacionEstado==='No participará')return '<article><h3>'+esc(p.estudianteGrupo)+'</h3><p>No participará en esta ficha. No se creará ni modificará su inscripción; coordinación revisa su estado en el evento.</p></article>';
         const matches=coincidenciasPresentacion(p,existing);
         const previousLink=f.confirmaciones?.[p.id];
         const preloadedIds=[...new Set((Array.isArray(f.estudiantesPrecargados) ? f.estudiantesPrecargados : []).filter(source=>p.inscripcionId?source.inscripcionId===p.inscripcionId:preloadMatchesPresentation(source,p)).map(source=>source.inscripcionId).filter(id=>matches.some(match=>match.exacta&&match.row.id===id&&normalizarNombre(match.row.docente)===normalizarNombre(f.docenteNombre))))];
@@ -394,7 +395,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
   }
   async function confirmFicha(loaded, existing) {
     const {token,ficha,presentaciones}=loaded;const errors=validarFichaParaConfirmar(ficha,presentaciones);if(errors.length)throw Error(errors.join(' '));
-    const choices=presentaciones.map(p=>({p,target:modalForm.querySelector(`[data-target="${p.id}"]`)?.value || '',additional:Boolean(modalForm.querySelector(`[data-additional="${p.id}"]`)?.checked),updatePresentation:Boolean(modalForm.querySelector(`[data-update-presentation="${p.id}"]`)?.checked),modality:modalForm.querySelector(`[data-modality="${p.id}"]`)?.value || ''}));
+    const choices=presentaciones.filter(p=>p.participacionEstado!=='No participará').map(p=>({p,target:modalForm.querySelector(`[data-target="${p.id}"]`)?.value || '',additional:Boolean(modalForm.querySelector(`[data-additional="${p.id}"]`)?.checked),updatePresentation:Boolean(modalForm.querySelector(`[data-update-presentation="${p.id}"]`)?.checked),modality:modalForm.querySelector(`[data-modality="${p.id}"]`)?.value || ''}));
     const targets=choices.filter(c=>c.target).map(c=>c.target);if(new Set(targets).size!==targets.length)throw Error('Dos propuestas no pueden vincularse a la misma inscripción. Revisa la selección.');
     const keepPrevious=Boolean(modalForm.querySelector('[data-keep-previous]')?.checked);
     if(inscripcionesAnteriores(ficha,presentaciones,existing).length&&!keepPrevious)throw Error('Revisa las inscripciones anteriores y confirma si deben conservarse.');

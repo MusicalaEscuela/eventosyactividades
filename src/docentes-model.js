@@ -29,6 +29,8 @@ export function validarFichaParaConfirmar(ficha, presentaciones) {
   if (!presentaciones.length || presentaciones.length !== ficha.cantidadPresentaciones || presentaciones.length > 20) errors.push('La ficha no tiene todas sus presentaciones guardadas.');
   const vistos = new Set();
   for (const row of presentaciones) {
+    if(row.participacionEstado==='No participará')continue;
+    if(row.participacionEstado==='Por confirmar')errors.push('Hay estudiantes cuya participación sigue por confirmar.');
     try{normalizeTeacherWorks(row,true);}catch(error){errors.push(error.message);}
     if (!['Individual', 'Ensamble'].includes(row.tipo) || !['musica', 'danza', 'teatro', 'artes-plasticas'].includes(row.areaArtisticaId)) errors.push('Revisa el tipo y el área de cada presentación.');
     const nombres = nombresPresentacion(row);

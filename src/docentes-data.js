@@ -60,9 +60,12 @@ export function validateFichaInput(input) {
     throw error('validacion', `La ficha admite hasta ${MAX_PRESENTACIONES} presentaciones.`);
   }
   const presentaciones = input.presentaciones.map((inputPresentation, i) => {
+    const participacionEstado=inputPresentation.participacionEstado||'Participará';
+    if(!['Participará','No participará','Por confirmar'].includes(participacionEstado))throw error('validacion',`Presentación ${i+1}: revisa el estado de participación.`);
+    if(estado==='Enviado'&&participacionEstado==='Por confirmar')throw error('validacion',`Presentación ${i+1}: confirma si participará.`);
     let p;
     try {
-      p=normalizeTeacherWorks(inputPresentation,estado==='Enviado');
+      p=normalizeTeacherWorks(inputPresentation,estado==='Enviado'&&participacionEstado!=='No participará');
     } catch (cause) {
       const name=String(inputPresentation.estudianteGrupo||'').trim();
       throw error('validacion', `Presentación ${i + 1}${name ? ' · '+name : ''}: ${cause.message || 'Revisa las obras y sus duraciones.'}`);
@@ -82,14 +85,15 @@ export function validateFichaInput(input) {
     }
     const extra = {obrasJson:textField(p.obrasJson,6000,'Obras'),inscripcionId:textField(p.inscripcionId,100,'Inscripción')};
     if(extra.inscripcionId && !ID_RE.test(extra.inscripcionId))throw error('validacion','La inscripción de origen no es válida.');
-    const normalized = { ...extra, id: `p${String(i + 1).padStart(2, '0')}`, tipo, areaArtisticaId, duracionMin, cantidadObras };
+    const normalized = { ...extra, participacionEstado, id: `p${String(i + 1).padStart(2, '0')}`, tipo, areaArtisticaId, duracionMin, cantidadObras };
     for (const [key, limit] of Object.entries(PRESENTACION_LIMITES)) {
       normalized[key] = textField(p[key], limit, `Presentación ${i + 1}`);
     }
+    if(estado==='Enviado'&&!normalized.estudianteGrupo)throw error('validacion',`Presentación ${i+1}: indica el estudiante o ensamble, incluso si no participará.`);
     if (normalized.materialUrl && !/^https?:\/\/[^\s]+$/i.test(normalized.materialUrl)) {
       throw error('validacion', `Presentación ${i + 1}: el enlace debe comenzar con https:// o http://.`);
     }
-    if (estado === 'Enviado') {
+    if (estado === 'Enviado' && participacionEstado!=='No participará') {
       if (!normalized.estudianteGrupo || !normalized.repertorio || (areaArtisticaId !== 'artes-plasticas' && duracionMin <= 0)) {
         throw error('validacion', `Presentación ${i + 1}: completa estudiante o ensamble, repertorio y duración antes de enviar.`);
       }
@@ -110,7 +114,7 @@ export function validateFichaInput(input) {
   });
   const fingerprints = presentaciones.map(p => [p.tipo, p.areaArtisticaId, p.estudianteGrupo, p.repertorio]
     .map(v => v.toLocaleLowerCase('es').normalize('NFKC').replace(/\s+/g, ' ').trim()).join('|'));
-  const completed = fingerprints.filter((_, i) => presentaciones[i].estudianteGrupo && presentaciones[i].repertorio);
+  const completed = fingerprints.filter((_, i) => presentaciones[i].participacionEstado!=='No participará' && presentaciones[i].estudianteGrupo && presentaciones[i].repertorio);
   if (new Set(completed).size !== completed.length) {
     throw error('validacion', 'Hay una presentación repetida con el mismo estudiante o ensamble, área y repertorio. Revisa la lista.');
   }

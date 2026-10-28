@@ -1,6 +1,6 @@
 import { getWorkMinutes } from './obras-duracion.js?v=20261016-tiempo-por-obra';
 import { buildEnsembleParticipationIndex, getEffectiveParticipantWorks, getEnsemblesForParticipantWork } from './ensambles-model.js?v=20261016-tiempo-por-obra';
-import { MAX_PRESENTACIONES, validateFichaInput } from './docentes-data.js?v=20261017-integracion';
+import { MAX_PRESENTACIONES, validateFichaInput } from './docentes-data.js?v=20261028-guiado';
 import { normalizarNombre } from './docentes-model.js';
 
 const texto = value => typeof value === 'string' ? value : '';

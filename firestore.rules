@@ -91,7 +91,8 @@ service cloud.firestore {
           'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt'])
         && data.keys().hasOnly(['tipo', 'estudianteGrupo', 'integrantesTexto', 'areaArtisticaId',
           'instrumento', 'repertorio', 'duracionMin', 'cantidadObras', 'recursos', 'materialUrl', 'preparacion',
-          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt', 'obrasJson', 'inscripcionId'])
+          'entrada', 'inicio', 'acompanamiento', 'cierre', 'observaciones', 'revision', 'updatedAt', 'obrasJson', 'inscripcionId', 'participacionEstado'])
+        && data.get('participacionEstado', 'Participará') in ['Participará', 'No participará', 'Por confirmar']
         && (!('obrasJson' in data) || docenteText(data, 'obrasJson', 6000))
         && (!('inscripcionId' in data) || docenteText(data, 'inscripcionId', 100) && (data.inscripcionId == '' || data.inscripcionId.matches('^[A-Za-z0-9_-]{1,100}$')))
         && data.tipo in ['Individual', 'Ensamble']
@@ -106,7 +107,8 @@ service cloud.firestore {
         && docenteText(data, 'inicio', 2000) && docenteText(data, 'acompanamiento', 3000)
         && docenteText(data, 'cierre', 2000) && docenteText(data, 'observaciones', 3000)
         && data.revision is int && data.revision == parent.revision && data.updatedAt == request.time
-        && (parent.estado != 'Enviado' ||
+        && (parent.estado != 'Enviado' || data.get('participacionEstado', 'Participará') == 'No participará' && data.estudianteGrupo.size() > 0 ||
+          data.get('participacionEstado', 'Participará') == 'Participará' &&
           data.estudianteGrupo.size() > 0 && data.repertorio.size() > 0
           && (data.areaArtisticaId == 'artes-plasticas' || data.duracionMin > 0)
           && (data.tipo != 'Ensamble' || data.integrantesTexto.size() > 0)
