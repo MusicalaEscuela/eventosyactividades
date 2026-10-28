@@ -1,16 +1,16 @@
-import { createSampleRoutes } from './ruta-muestras.js?v=20261027-recursos-1';
+import { createSampleRoutes } from './ruta-muestras.js?v=20261028-reutilizar-1';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261016-stage';
-import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261027-recursos-1';
-import { createAnnualSystem } from "./muestras-anual.js?v=20261027-recursos-1";
+import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-reutilizar-1';
+import { createAnnualSystem } from "./muestras-anual.js?v=20261028-reutilizar-1";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261017-integracion";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
 import { buildParticipantTeacherOptions, teacherHistoryForStudent } from "./participantes-model.js";
-import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261027-recursos-1";
-import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261027-recursos-1";
+import { buildEnsembleCandidates, normalizeEnsembleMembers, validateEnsembleMembers, findEnsemblesForWork, buildEnsembleParticipationIndex, getParticipantEnsembles, getEffectiveParticipantWorks, getEnsemblesForParticipantWork, getIndividualSoloWorks, getParticipantDuration, buildPresentationCatalogue } from "./ensambles-model.js?v=20261028-reutilizar-1";
+import { MOMENT_PRESETS, getMomentPreset, resolveMomentType, nextMomentTitle, getMomentEnd, getNextMoment, getParticipantWorks, buildMomentPresentation, getProgrammeEnsembleWarnings } from "./programacion-model.js?v=20261028-reutilizar-1";
 import {
   auth,
   provider,
@@ -297,6 +297,15 @@ function opcionesConSeleccion(options, selected = "") {
   const todas = [...options];
   if (selected && !todas.includes(selected)) todas.push(selected);
   return selectOptions(todas, selected);
+}
+
+function recursosDeOtrasPresentaciones(row = {}) {
+  const resources=new Map();
+  (state.childData.muestras||[]).filter(other=>other.id!==row.id&&!isCancelledParticipant(other)).forEach(other=>recursosSeleccionados(other).forEach(resource=>{
+    const key=normalizarNombre(resource);
+    if(key!=='sonido'&&!resources.has(key))resources.set(key,resource);
+  }));
+  return [...resources.values()];
 }
 
 function recursosSeleccionados(row = {}) {
@@ -2264,6 +2273,12 @@ function openChildDialog(tab, row = null) {
     });
   }
 
+  modalForm.querySelector('#reuseEventResources')?.addEventListener('click',()=>{
+    const used=new Set(recursosDeOtrasPresentaciones(row).map(normalizarNombre));let added=0;
+    modalForm.querySelectorAll('[name="recursosSeleccionados"]').forEach(input=>{if(used.has(normalizarNombre(input.value))&&!input.checked){input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));added++;}});
+    modalForm.querySelector('#reuseResourcesResult').textContent=added?added+' recurso(s) añadidos. Revisa la selección y guarda los cambios.':'Los recursos de otras presentaciones ya están marcados.';
+  });
+
   modalForm.onsubmit = async (submitEvent) => {
     submitEvent.preventDefault();
     if (childSaving) return;
@@ -2544,9 +2559,10 @@ function childForm(tab, row = {}) {
   }
 
   if (tab === "muestras") {
-    const opcionesRecursos = [...new Set([...listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES), ...recursosSeleccionados(row)])];
+    const recursosPrevios=recursosDeOtrasPresentaciones(row);
+    const opcionesRecursos = [...new Set([...listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES), ...recursosSeleccionados(row), ...recursosPrevios])];
     const editorWorks = participantWorks(row);
-    const seleccionados = recursosSeleccionados(row);
+    const seleccionados = row.id ? recursosSeleccionados(row) : [...new Set([...recursosSeleccionados(row), ...recursosPrevios])];
     const generoActual = normalizeGenre(row.genero || "Sin definir");
     const opcionesGeneros = listaParticipantes("generos", GENEROS);
     return `
@@ -2587,6 +2603,7 @@ function childForm(tab, row = {}) {
         <fieldset class="wide selector-recursos">
           <legend>Recursos técnicos</legend>
           <p class="field-hint">Marca los equipos concretos para esta presentación. Las sillas del público y los ventiladores van en Editar evento. «Silla sin brazos» es para el músico en escena. El parlante incluye cable de energía; los telones forman un juego de 2.</p>
+          ${recursosPrevios.length ? `<p class="field-hint">${row.id ? 'Puedes añadir los recursos de otras presentaciones del mismo evento y desmarcar los que no apliquen.' : 'Se dejaron marcados los recursos de otras presentaciones del mismo evento. Revisa y desmarca los que no apliquen.'}</p><button type="button" class="small-btn" id="reuseEventResources">Marcar recursos de otras presentaciones (${recursosPrevios.length})</button><p id="reuseResourcesResult" class="field-hint" role="status"></p>` : ''}
           <div class="check-grid">${opcionesRecursos.map(recurso => `
             <label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(recurso)}" ${seleccionados.includes(recurso) ? "checked" : ""} /><span>${escapeHtml(recurso)}${normalizarNombre(recurso)==='sonido'?' · registro anterior: precisa los equipos':''}</span></label>
           `).join("")}</div>
