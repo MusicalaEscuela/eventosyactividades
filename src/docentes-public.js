@@ -3,7 +3,7 @@ import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261028-guiado';
 
 function resourceFields(value=''){
   const selected=String(value).split(',').map(v=>v.trim()).filter(Boolean);
-  return `<div class="docentes-wide"><p>Equipos concretos necesarios</p><div class="docentes-grid">${[...TEACHER_RESOURCES,'No requiere recursos adicionales'].map(resource=>`<label><input type="checkbox" data-resource value="${esc(resource)}" ${selected.includes(resource)?'checked':''} />${esc(resource)}</label>`).join('')}</div></div>${field('Otros recursos o detalles', 'recursos', selected.filter(v=>!TEACHER_RESOURCES.includes(v)&&v!=='No requiere recursos adicionales').join(', '), {textarea:true,placeholder:'Solo necesidades que no estén en la lista'})}`;
+  return `<div class="docentes-wide"><p>Equipos concretos necesarios</p><div class="docentes-grid">${[...TEACHER_RESOURCES,'Otro recurso (detallar)','No requiere recursos adicionales'].map(resource=>`<label><input type="checkbox" data-resource value="${esc(resource)}" ${selected.includes(resource)?'checked':''} />${esc(resource)}</label>`).join('')}</div></div>${field('Otros recursos o detalles', 'recursos', selected.filter(v=>!TEACHER_RESOURCES.includes(v)&&v!=='No requiere recursos adicionales'&&v!=='Otro recurso (detallar)').join(', '), {textarea:true,placeholder:'Solo necesidades que no estén en la lista'})}`;
 }
 
 function executionFields(data,index){
@@ -464,7 +464,7 @@ function readPresentations() {
     const start=container.querySelector('[data-start-choice]')?.value||'';
     data.inicio=start+(data.inicio?': '+data.inicio:'');
     const support=container.querySelector('[data-support-choice]')?.value;
-    data.acompanamiento=support==='No'?'No requiere acompañamiento':support==='Sí'?'Sí · Docente: '+container.querySelector('[data-support-teacher]').value.trim()+' · Función: '+container.querySelector('[data-support-role]').value.trim():'';
+    data.acompanamiento=support==='No'?'No requiere acompañamiento':support==='Sí'?'Sí · Docente: '+container.querySelector('[data-support-teacher]').value.trim()+' · Función: '+container.querySelector('[data-support-role]').value.trim():container.querySelector('[data-support-role]').value.trim();
     const sourceIndex = container.dataset.rosterIndex;
     if (sourceIndex != null && /^\d+$/.test(sourceIndex) && rosterRows()[Number(sourceIndex)]) data._rosterIndex = Number(sourceIndex);
     if (data.tipo !== 'Ensamble') data.integrantesTexto = '';
@@ -592,7 +592,10 @@ async function persist(estado,reviewed=false) {
       if(p.participacionEstado==='No participará')return;
       if(p.inscripcionId&&Array.isArray(state.ficha.estudiantesPrecargados)&&!rosterRows().some(source=>source.inscripcionId===p.inscripcionId))fail('La inscripción ya no está asignada en tu listado. Consulta a coordinación o marca No participará en esta ficha.');
       try{validateFichaInput({...payload,presentaciones:[p]});}catch(error){fail(error.message.replace(/^Presentación 1(?: · [^:]+)?:\s*/,''));}
-      if(!p.recursos)fail('Selecciona los recursos o marca No requiere recursos adicionales.');
+      const card=app.querySelector('[data-presentation="'+index+'"]');
+      const selectedResources=[...card.querySelectorAll('[data-resource]:checked')];
+      if(!selectedResources.length)fail('Selecciona los equipos de la lista, Otro recurso o No requiere recursos adicionales.');
+      if(selectedResources.some(input=>input.value==='Otro recurso (detallar)')&&!card.querySelector('[name="recursos"]').value.trim())fail('Describe el otro recurso que necesitas.');
       if(!/^(Empieza solo|Espera señal del docente|Empieza con la pista|Otro)/.test(p.inicio)||p.inicio==='Otro')fail('Selecciona cómo inicia y detalla la opción Otro.');
       if(!p.acompanamiento||(p.acompanamiento!=='No requiere acompañamiento'&&!/^Sí · Docente: \S[\s\S]* · Función: \S[\s\S]*$/.test(p.acompanamiento)))fail('Define si necesita acompañamiento. Si es Sí, indica docente y función.');
     });
