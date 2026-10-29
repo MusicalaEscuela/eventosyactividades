@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Musicala Stage Patch</title>
+  <link rel="stylesheet" href="styles.css?v=20261029-1">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ══════════════════════ HEADER ══════════════════════ -->
+  <header id="header">
+    <div class="logo">
+      <img src="../../logo.png" alt="Musicala" class="logo-img">
+      Musicala Stage Patch
+    </div>
+
+    <input type="text" id="project-name" value="Nuevo montaje" title="Nombre del proyecto">
+
+    <div class="toolbar">
+      <!-- Modos -->
+      <button id="btn-plan" class="tool-btn active">🗺️ Plano visual</button>
+      <button id="btn-select"  class="tool-btn active">↖ Seleccionar</button>
+      <button id="btn-connect" class="tool-btn">⚡ Conectar</button>
+      <div class="sep"></div>
+
+      <!-- Validar -->
+      <button id="btn-validate" class="validate-btn">✓ Validar montaje</button>
+      <div class="sep"></div>
+
+      <!-- Plantillas -->
+      <select id="template-select" class="template-select">
+        <option value="">Plantilla rápida…</option>
+        <option value="rock_band">Banda rock básica</option>
+        <option value="musicala_class">Clase / presentación Musicala</option>
+        <option value="rehearsal">Ensayo simple</option>
+      </select>
+      <div class="sep"></div>
+
+      <!-- Proyecto -->
+      <button id="btn-edit" class="icon-btn">✏️ Editar</button>
+      <button id="btn-duplicate" class="icon-btn">⧉ Duplicar</button>
+      <button id="btn-delete" class="icon-btn">🗑 Eliminar</button>
+      <button id="btn-library" class="icon-btn">＋ Equipos</button>
+      <button id="btn-panel" class="icon-btn">📋 Listas</button>
+      <button id="btn-new"  class="icon-btn">+ Nuevo</button>
+      <button id="btn-save" class="icon-btn">💾 Guardar</button>
+      <button id="btn-export-json" class="icon-btn">↓ JSON</button>
+      <label  class="icon-btn" title="Importar proyecto JSON">
+        ↑ JSON
+        <input type="file" id="import-file" accept=".json" style="display:none">
+      </label>
+      <button id="btn-print" class="icon-btn">🖨 Imprimir</button>
+    </div>
+  </header>
+  <details id="project-notes-wrap"><summary>📝 Notas del montaje</summary><textarea id="project-notes" rows="3" placeholder="Indicaciones para este montaje"></textarea></details>
+
+  <!-- ══════════════════════ MAIN ════════════════════════ -->
+  <div id="main">
+
+    <!-- ── SIDEBAR ── -->
+    <aside id="sidebar">
+      <div class="sidebar-search">
+        <input type="text" id="search-input" placeholder="Buscar equipo…">
+      </div>
+      <!-- Leyenda de cables -->
+      <div id="cable-legend"></div>
+      <!-- Biblioteca de equipos (generada por JS) -->
+      <div id="sidebar-content"></div>
+    </aside>
+
+    <!-- ── ESCENARIO ── -->
+    <div id="stage-wrapper">
+      <!-- Barra superior del escenario -->
+      <div id="stage-bar">
+        <span id="mode-label">Plano visual · arrastra los dibujos</span><span class="stage-orientation">Fondo del escenario ↑ · Público ↓</span>
+        <button id="btn-zoom-in">＋</button>
+        <button id="btn-zoom-out">－</button>
+        <button id="btn-zoom-reset">100%</button><button id="btn-fit">Ajustar plano</button><button id="btn-arrange" title="Distribuir dibujos y equipos sin cambiar sus conexiones ni cantidades">↔ Ordenar plano</button>
+        <span id="zoom-label">100%</span>
+      </div>
+
+      <!-- Área scrollable -->
+      <div id="stage-scroll">
+        <div id="stage"
+             ondragover="event.preventDefault()"
+             ondrop="handleStageDrop(event)">
+
+          <!-- SVG superpuesto para cables -->
+          <svg id="cables-svg" xmlns="http://www.w3.org/2000/svg">
+            <!-- Cables se dibujan aquí por JS -->
+          </svg>
+
+          <!-- Las tarjetas de elementos se insertan aquí por JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PANEL DERECHO ── -->
+    <aside id="panel">
+      <div class="panel-tabs">
+        <button class="panel-tab active" data-tab="diagnosis">🔎 Diagnóstico</button>
+        <button class="panel-tab"        data-tab="inputlist">📋 Input List</button>
+        <button class="panel-tab"        data-tab="materials">📦 Materiales</button>
+        <button class="panel-tab"        data-tab="checklist">✅ Checklist</button>
+      </div>
+      <div id="panel-body">
+        <!-- contenido dinámico -->
+      </div>
+    </aside>
+
+  </div><!-- /main -->
+
+</div><!-- /app -->
+
+<!-- ══════════════ CONTEXTO (clic derecho) ══════════════ -->
+<div id="context-menu" class="hidden">
+  <ul>
+    <li id="ctx-edit">✏️ Editar</li>
+    <li id="ctx-duplicate">⧉ Duplicar</li>
+    <li id="ctx-delete">🗑 Eliminar</li>
+  </ul>
+</div>
+
+<!-- ══════════════ MODAL EDICIÓN ════════════════════════ -->
+<div id="modal-overlay" class="hidden">
+  <div id="modal">
+    <div class="modal-header">
+      <h2>Editar equipo</h2>
+      <button id="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>
+        Nombre personalizado
+        <input type="text" id="modal-name" placeholder="Ej: Voz solista">
+      </label>
+      <label>Cantidad<input type="number" id="modal-quantity" min="1" max="999" value="1"></label>
+      <label id="modal-channels-wrap" style="display:none">
+        <span id="modal-channels-label">Número de canales</span>
+        <input type="number" id="modal-channels" min="1" max="64" value="8">
+      </label>
+      <div id="modal-channel-types" style="display:none"></div>
+      <div id="modal-device-options" style="display:none"></div>
+      <label>
+        Notas / observaciones
+        <textarea id="modal-notes" rows="3" placeholder="Cualquier detalle técnico…"></textarea>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button id="modal-cancel">Cancelar</button>
+      <button id="modal-save" class="validate-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ CABLE TOOLTIP ════════════════════════ -->
+<div id="cable-tooltip" class="hidden">
+  <span id="cable-info"></span>
+  <label class="cable-len-wrap" title="Longitud del cable en metros">
+    <input type="number" id="cable-length" min="0" step="0.5" value="0"> m
+  </label>
+  <button id="cable-delete-btn" title="Eliminar cable">🗑</button>
+</div>
+
+<!-- ══════════════ CONNECT HINT ═════════════════════════ -->
+<div id="connect-hint">
+  Haz clic en un puerto de SALIDA <strong>●</strong> y luego en uno de ENTRADA
+</div>
+
+<!-- ══════════════ SECCIÓN IMPRIMIBLE ═══════════════════ -->
+<div class="print-only" id="print-section">
+  <h2>♪ Musicala Stage Patch — <span id="print-project-name"></span></h2>
+  <p id="print-notes"></p>
+  <h3 style="margin:14px 0 6px;font-size:13px">Input List</h3>
+  <div id="print-inputlist"></div>
+  <h3 style="margin:18px 0 6px;font-size:13px">Lista de materiales</h3>
+  <div id="print-materials"></div>
+</div>
+
+<script src="data.js?v=20261029-1"></script>
+<script src="app.js?v=20261029-1"></script>
+</body>
+</html>

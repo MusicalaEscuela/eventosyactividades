@@ -209,6 +209,17 @@ La autenticación Google real y la persistencia en producción deben verificarse
 sesión autorizada después de publicar Hosting y las reglas correspondientes. Cambiar
 los archivos locales no despliega reglas ni inicializa documentos en producción.
 
+## Rider técnico con Stage Plot
+
+Rider técnico integra el editor completo de Stage Plot por presentación: plano
+con dibujos, biblioteca, conexiones, diagnóstico, Input List, materiales,
+checklist de ida/regreso, plantillas, JSON e impresión. Los planos anteriores
+conservan sus posiciones y cantidades. **Ordenar plano** permite distribuir
+equipos que quedaron amontonados; **Ampliar editor** facilita el trabajo en pantalla.
+Los cambios se guardan explícitamente junto con el evento.
+
+Uso, compatibilidad y pruebas: [Integración Stage Plot](./docs/stage-plot-integracion.md).
+
 ## Formato docente sin inicio de sesión
 
 Acceso: [docentes.html](./docentes.html). En cada evento, coordinación abre **Formato docentes → Configurar inscripciones**, selecciona los docentes y establece la fecha límite. Puede preparar fichas con los estudiantes ya asignados en Participantes y copiar el enlace privado de cada docente. La página general orienta a usar ese enlace cuando la ficha está preparada.

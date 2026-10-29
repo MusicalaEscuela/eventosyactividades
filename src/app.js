@@ -2,7 +2,7 @@ import { createSetlist } from './setlist.js?v=20261028-setlist-3';
 import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
-import { createStagePlots } from './stage-plots.js?v=20261016-stage';
+import { createStagePlots } from './stage-plots.js?v=20261029-editor-1';
 import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261028-guiado";
@@ -3492,6 +3492,7 @@ onAuthStateChanged(auth, user => {
     listenParticipaciones();
     cargarRipSilencioso();
   } else {
+    stagePlots.reset();
     sampleRoutes.stop();
     teacherAdmin.stop();
     annualSystem.stop();
