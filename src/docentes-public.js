@@ -1,5 +1,5 @@
 import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
-import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261028-guiado';
+import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261028-recursos-4';
 
 function resourceFields(value=''){
   const selected=String(value).split(',').map(v=>v.trim()).filter(Boolean);

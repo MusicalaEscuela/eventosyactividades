@@ -4,6 +4,8 @@ export const TEACHER_RESOURCES = [
   "Estructura para telón",
   "Telones cafés (juego de 2)",
   "Trípode para cámara y/o celular",
+  "Sistema inalámbrico para instrumentos (plug)",
+  "Audífonos de monitoreo (interfaz de audio)",
   "Monitor",
   "Pista",
   "Consola / mezcla",

@@ -272,7 +272,7 @@ const FIELD_OPTIONS = {
 };
 
 // Cada evento puede ajustar estas opciones desde Participantes sin afectar los demás.
-const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular'];
+const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular', 'Sistema inalámbrico para instrumentos (plug)', 'Audífonos de monitoreo (interfaz de audio)'];
 const RECURSOS_TECNICOS_INICIALES = [
   ...RECURSOS_EQUIPO_EVENTO,
   // Sonido general
