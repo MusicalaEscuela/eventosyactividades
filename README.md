@@ -25,8 +25,6 @@ Sirve para hacer seguimiento a:
   - Checklist.
   - Bitácora.
 - Plantillas base según tipo de evento.
-- Exportación JSON de un evento o de todo el sistema.
-- Importación JSON de eventos exportados.
 - Diseño responsive.
 - Sin service worker, sin manifest, sin instalación PWA.
 
@@ -104,7 +102,6 @@ El archivo `firebase.json` ya apunta al proyecto `muestras-de-proceso` por `.fir
 4. Agrega actividades con responsables y fechas límite.
 5. Registra muestras por estudiante/grupo.
 6. Usa la bitácora para dejar decisiones, riesgos y aprendizajes.
-7. Exporta JSON antes de cambios grandes.
 
 ## Notas importantes
 

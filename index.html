@@ -90,7 +90,6 @@
           </div>
           <div class="top-actions">
             <button id="printBtn" class="btn btn-light">Imprimir / PDF</button>
-            <button id="exportAllBtn" class="btn btn-light">Exportar todo</button>
           </div>
         </header>
 
@@ -111,8 +110,6 @@
     <form method="dialog" id="modalForm" class="modal-card"></form>
   </dialog>
 
-  <input id="importFile" type="file" accept="application/json" hidden />
-
   <!-- Sugerencias compartidas por todos los formularios (se llenan desde Firestore). -->
   <datalist id="personasDisponibles"></datalist>
   <datalist id="docentesDisponibles"></datalist>
@@ -123,6 +120,6 @@
     <div class="toast"></div>
   </template>
 
-  <script type="module" src="./src/app.js?v=20261029-stage-editor-1"></script>
+  <script type="module" src="./src/app.js?v=20261029-event-actions-1"></script>
 </body>
 </html>

@@ -61,7 +61,6 @@ const pageTitle = $("#pageTitle");
 const kpis = $("#kpis");
 const modal = $("#modal");
 const modalForm = $("#modalForm");
-const importFile = $("#importFile");
 
 const state = {
   user: null,
@@ -1376,8 +1375,6 @@ function renderDetail() {
           <div class="actions">
             ${!["Realizado", "No realizado", "Archivado"].includes(evento.estado) ? `<button class="btn btn-light" data-action="mark-realized">✓ Marcar realizado</button><button class="btn btn-light" data-action="mark-not-realized">⊘ No se realizó</button>` : `<span class="field-hint">Este evento está en el historial. Puedes cambiar su estado desde Editar evento si fue necesario corregirlo.</span>`}
             <button class="btn btn-light" data-action="edit-event">Editar evento</button>
-            <button class="btn btn-light" data-action="export-event">Exportar evento</button>
-            <button class="btn btn-light" data-action="import-event">Importar JSON</button>
             <button class="btn btn-danger" data-action="archive-event">Archivar</button>
             <button class="btn btn-danger" data-action="delete-event">Eliminar definitivamente</button>
           </div>
@@ -1730,8 +1727,6 @@ function rowActions(tab, id) {
 
 function handleAction(action) {
   if (action === "edit-event") openEventDialog(state.selectedEvent);
-  if (action === "export-event") exportSelectedEvent();
-  if (action === "import-event") importFile.click();
   if (action === "mark-realized") cerrarEvento("realizado");
   if (action === "mark-not-realized") cerrarEvento("no-realizado");
   if (action === "archive-event") archiveEvent();
@@ -2933,92 +2928,6 @@ function openCommonActivitiesDialog() {
   };
 }
 
-async function collectEventPayload(eventId) {
-  const evento = state.eventos.find(e => e.id === eventId) || state.selectedEvent;
-  const payload = { evento: { ...evento }, subcolecciones: {} };
-  delete payload.evento.id;
-  for (const child of CHILD_COLLECTIONS) {
-    const snap = await getDocs(collection(db, COLLECTION, eventId, child));
-    payload.subcolecciones[child] = snap.docs.map(docSnap => {
-      const data = docSnap.data();
-      delete data.createdAt;
-      delete data.updatedAt;
-      if (child === "muestras") data._exportId = docSnap.id;
-      return data;
-    });
-  }
-  return payload;
-}
-
-async function exportSelectedEvent() {
-  const payload = await collectEventPayload(state.selectedEventId);
-  downloadJson(payload, `${slugify(state.selectedEvent.titulo || "evento")}.json`);
-}
-
-async function exportAllEvents() {
-  const all = [];
-  for (const evento of state.eventos) {
-    all.push(await collectEventPayload(evento.id));
-  }
-  downloadJson({ exportedAt: new Date().toISOString(), eventos: all }, "musicala-eventos-export.json");
-}
-
-function downloadJson(payload, filename) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function slugify(text) {
-  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "evento";
-}
-
-async function importEventFromFile(file) {
-  const text = await file.text();
-  const payload = JSON.parse(text);
-  const evento = payload.evento || payload;
-  const subcolecciones = payload.subcolecciones || {};
-  delete evento.id;
-  delete evento.sistemaAnual;
-  evento.titulo = `${evento.titulo || "Evento importado"} (importado)`;
-  evento.createdAt = serverTimestamp();
-  evento.updatedAt = serverTimestamp();
-  evento.createdBy = state.user.email;
-  evento.updatedBy = state.user.email;
-  const eventRef = await addDoc(collection(db, COLLECTION), evento);
-  const batch = writeBatch(db);
-  const planned = [];
-  Object.entries(subcolecciones).forEach(([child, items]) => {
-    if (!CHILD_COLLECTIONS.includes(child) || child === "partituras" || !Array.isArray(items)) return;
-    items.forEach(item => {
-      const ref = doc(collection(db, COLLECTION, eventRef.id, child));
-      planned.push({ child, item, ref });
-    });
-  });
-  const participantIds = new Map();
-  planned.filter(({ child }) => child === "muestras").forEach(({ item, ref }) => {
-    const oldId = typeof item?._exportId === "string" ? item._exportId : "";
-    if (oldId) participantIds.set(oldId, participantIds.has(oldId) ? "" : ref.id);
-  });
-  planned.forEach(({ child, item, ref }) => {
-    const data = { ...item };
-    delete data._exportId;
-    // Los IDs cambian al importar; sin una referencia única se conserva sólo la copia guardada.
-    if (child === "programacion" && "participanteId" in data) data.participanteId = participantIds.get(data.participanteId) || "";
-    if (child === 'muestras' && Array.isArray(data.integrantes)) data.integrantes = data.integrantes.map(member => member && typeof member === 'object' && 'participanteId' in member ? { ...member, participanteId: participantIds.get(member.participanteId) || '' } : member);
-    batch.set(ref, { ...data, createdAt: serverTimestamp(), createdByEmail: state.user.email, createdByName: state.user.displayName || state.user.email });
-  });
-  await batch.commit();
-  selectEvent(eventRef.id);
-  toast("Evento importado.");
-}
-
 const LUGAR_ESTADOS = ["Por contactar", "Contactado", "En evaluación", "Disponible", "Descartado"];
 
 const LUGAR_COSTO_MODALIDADES = ["Por definir", "Gratis / préstamo", "Por hora", "Por jornada", "Por evento", "Porcentaje de taquilla", "Intercambio / convenio"];
@@ -3439,7 +3348,6 @@ function attachGlobalEvents() {
     state.placesDialogOpen = false;
     state.peopleDialogOpen = false;
   });
-  $("#exportAllBtn").addEventListener("click", exportAllEvents);
   $("#printBtn").addEventListener("click", () => state.tab==='setlist'?setlist.print():window.print());
   ["#searchInput", "#typeFilter", "#statusFilter"].forEach(selector => $(selector).addEventListener("input", applyFilters));
   eventDetail.addEventListener("click", event => {
@@ -3461,18 +3369,6 @@ function attachGlobalEvents() {
     if (deleteTarget) {
       const [tab, id] = deleteTarget.dataset.deleteChild.split(":");
       deleteChild(tab, id);
-    }
-  });
-  importFile.addEventListener("change", async () => {
-    const file = importFile.files?.[0];
-    if (!file) return;
-    try {
-      await importEventFromFile(file);
-    } catch (error) {
-      console.error(error);
-      toast("No pude importar ese JSON. Revisa que sea una exportación de esta app.");
-    } finally {
-      importFile.value = "";
     }
   });
 }
