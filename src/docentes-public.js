@@ -1,8 +1,8 @@
 import { teacherWorks } from './docentes-obras.js?v=20261017-integracion';
-import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261028-recursos-5';
+import { TEACHER_RESOURCES } from './docentes-recursos.js?v=20261029-recursos-1';
 
 function resourceFields(value=''){
-  const selected=String(value).split(',').map(v=>v.trim()).filter(Boolean).map(v=>v.toLowerCase()==='monitor'?'Parlante pequeño':v);
+  const selected=String(value).split(',').map(v=>v.trim()).filter(Boolean).flatMap(v=>v.toLowerCase()==='micrófono de voz con base'?['Micrófono','Base de micrófono']:v.toLowerCase()==='monitor'?['Parlante pequeño']:[v]);
   return `<div class="docentes-wide"><p>Equipos concretos necesarios</p><div class="docentes-grid">${[...TEACHER_RESOURCES,'Otro recurso (detallar)','No requiere recursos adicionales'].map(resource=>`<label><input type="checkbox" data-resource value="${esc(resource)}" ${selected.includes(resource)?'checked':''} />${esc(resource)}</label>`).join('')}</div></div>${field('Otros recursos o detalles', 'recursos', selected.filter(v=>!TEACHER_RESOURCES.includes(v)&&v!=='No requiere recursos adicionales'&&v!=='Otro recurso (detallar)').join(', '), {textarea:true,placeholder:'Solo necesidades que no estén en la lista'})}`;
 }
 

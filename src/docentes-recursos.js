@@ -11,7 +11,6 @@ export const TEACHER_RESOURCES = [
   "Consola / mezcla",
   "Micrófono",
   "Micrófono de voz inalámbrico",
-  "Micrófono de voz con base",
   "Micrófono para violín / viola",
   "Micrófono para chelo",
   "Micrófono para vientos",
