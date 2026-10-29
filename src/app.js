@@ -1,10 +1,11 @@
+import { riderTemplates, renderRiderSetup, parseTemplateItems, templateText } from './rider-templates.js?v=20261029-templates-1';
 import { createSetlist } from './setlist.js?v=20261028-setlist-3';
 import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261029-editor-1';
 import { calculateEventAttendance } from './evento-aforo-model.js?v=20261029-aforo-1';
-import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261029-aforo-1';
+import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261029-templates-1';
 import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261028-guiado";
@@ -1463,6 +1464,7 @@ function renderDetail() {
         </div>
       </div>
       ${['muestras','equipo','rider','checklist','programacion'].includes(state.tab) ? renderAttendanceSummary(attendance) : ''}
+      ${['muestras','equipo','checklist','programacion'].includes(state.tab) ? renderRiderSetup(state.childData.rider) : ''}
       ${state.tab === "muestras" ? resumenRepertorio()+participantControls() : ""}
       <div class="${state.tab === 'ficha' ? 'event-sheet-panel' : 'table-panel'} ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
     </section>
@@ -1625,7 +1627,7 @@ function renderTabContent(tab) {
   if (tab === 'ficha') return renderEventSheet(eventSheetContext(), eventAttendance());
   if(tab === "setlist")return setlist.render();
   if (tab === "partituras") return scores.render();
-  if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
+  if (tab === "rider") return `${renderRiderSetup(state.childData.rider, riderTemplates(state.eventos), true)}<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
   const rows = state.childData[tab] || [];
   if (!rows.length) {
     return `<div class="empty-state"><h3>Sin registros</h3><p>Agrega el primer registro para que esto deje de ser una intención bonita flotando en el vacío.</p></div>`;
@@ -1780,6 +1782,9 @@ function rowActions(tab, id) {
 }
 
 function handleAction(action) {
+  if (action === 'rider-template-apply') applyRiderTemplate();
+  if (action === 'rider-template-create') editRiderTemplate();
+  if (action === 'rider-template-edit') editRiderTemplate(document.querySelector('#riderTemplateChoice')?.value);
   if (action === "edit-event") openEventDialog(state.selectedEvent);
   if (action === 'view-ficha') { state.tab = 'ficha'; renderDetail(); }
   if (action === 'print-ficha') printSelectedEventSheet();
@@ -3529,4 +3534,46 @@ function renderRiderRecords() {
       escapeHtml(row.proveedor || ""), escapeHtml(row.ubicacion || ""), badge(row.estado),
       escapeHtml(row.notas || ""), rowActions(tab, row.id)
     ]));
+}
+
+function editRiderTemplate(id = '') {
+  const existing = riderTemplates(state.eventos).find(t => t.id === id);
+  const base = existing || {name:'',items:state.childData.rider.map(r=>[r.categoria||'General',r.elemento,r.cantidad||'Por definir',r.notas||''])};
+  const eventId = existing?.eventId || state.selectedEventId;
+  if (!eventId) return;
+  setModal(`<h3>${existing ? 'Editar plantilla' : 'Crear plantilla de rider'}</h3><label>Nombre de la plantilla<input name="nombre" required maxlength="160" value="${escapeHtml(base.name)}"></label><label>Equipos de la plantilla<textarea name="items" required rows="14">${escapeHtml(templateText(base.items))}</textarea></label><p class="field-hint">Una línea por recurso: categoría | equipo o cable | cantidad o Por definir | indicaciones. Se precarga el rider actual. Las plantillas se comparten entre eventos; editarlas no cambia montajes ya preparados.</p>`, 'Guardar plantilla');
+  modalForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const items = parseTemplateItems(modalForm.elements.items.value);
+      const name = modalForm.elements.nombre.value.trim();
+      if (!name) throw new Error('Escribe un nombre.');
+      const key = existing && !existing.builtin ? existing.key : crypto.randomUUID();
+      const ref = doc(db,COLLECTION,eventId);
+      await runTransaction(db,async tx=>{
+        const snap=await tx.get(ref); if(!snap.exists())throw new Error('El evento ya no está disponible.');
+        tx.update(ref,{riderTemplates:{...(snap.data().riderTemplates||{}),[key]:{name,items}},updatedAt:serverTimestamp(),updatedBy:state.user.email});
+      });
+      modal.close();toast('Plantilla guardada y disponible para los eventos.');
+    } catch(error) { toast(error.message || 'No se pudo guardar la plantilla.'); }
+  };
+}
+async function applyRiderTemplate() {
+  const eventId=state.selectedEventId;
+  const template=riderTemplates(state.eventos).find(t=>t.id===document.querySelector('#riderTemplateChoice')?.value);
+  if(!eventId||!template)return;
+  if(!confirm(`¿Añadir ${template.items.length} recursos de «${template.name}» al rider general? Se conservan los recursos y ajustes existentes.`))return;
+  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+  const names=new Set(state.childData.rider.map(r=>norm(r.elemento)));
+  const hash=value=>{let n=2166136261;for(const c of value)n=Math.imul(n^c.charCodeAt(0),16777619);return(n>>>0).toString(16);};
+  try {
+    let added=0;
+    await runTransaction(db,async tx=>{
+      added=0;
+      const entries=template.items.filter(item=>!names.has(norm(item[1]))).map(item=>({item,ref:doc(db,COLLECTION,eventId,'rider','template-resource-'+hash(norm(item[1])))}));
+      const snaps=[];for(const entry of entries)snaps.push(await tx.get(entry.ref));
+      entries.forEach(({item,ref},i)=>{if(snaps[i].exists())return;tx.set(ref,{elemento:item[1],categoria:item[0],cantidad:item[2],notas:item[3],estado:'Pendiente',proveedor:'',ubicacion:'',plantillaNombre:template.name,createdAt:serverTimestamp(),createdByEmail:state.user.email});added++;});
+    });
+    toast(added?`${added} recursos añadidos. Revisa cantidades, disponibilidad y conexiones.`:'Los recursos ya estaban incluidos; se conservaron tus ajustes.');
+  }catch(error){console.error(error);toast('No se pudo aplicar la plantilla. Vuelve a intentarlo.');}
 }
