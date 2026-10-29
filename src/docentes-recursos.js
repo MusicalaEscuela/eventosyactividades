@@ -6,7 +6,7 @@ export const TEACHER_RESOURCES = [
   "Trípode para cámara y/o celular",
   "Sistema inalámbrico para instrumentos (plug)",
   "Audífonos de monitoreo (interfaz de audio)",
-  "Monitor",
+  "Parlante pequeño",
   "Pista",
   "Consola / mezcla",
   "Micrófono",

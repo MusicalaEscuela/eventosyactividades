@@ -276,7 +276,7 @@ const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Em
 const RECURSOS_TECNICOS_INICIALES = [
   ...RECURSOS_EQUIPO_EVENTO,
   // Sonido general
-  "Monitor", "Pista", "Consola / mezcla",
+  "Parlante pequeño", "Pista", "Consola / mezcla",
   // Micrófonos
   "Micrófono", "Micrófono de voz inalámbrico", "Micrófono de voz con base", "Micrófono para violín / viola",
   "Micrófono para chelo", "Micrófono para vientos", "Micrófono para guitarra acústica", "Micrófonos de batería",
@@ -292,7 +292,7 @@ const RECURSOS_TECNICOS_INICIALES = [
 function listaParticipantes(campo, respaldo) {
   const lista = state.selectedEvent?.listasParticipantes?.[campo];
   const options=Array.isArray(lista) && lista.length ? lista : respaldo;
-  return campo==='recursosTecnicos' ? [...new Set([...RECURSOS_EQUIPO_EVENTO,...options.filter(item=>normalizarNombre(item)!=='sonido')])] : options;
+  return campo==='recursosTecnicos' ? [...new Set([...RECURSOS_EQUIPO_EVENTO,...options.filter(item=>normalizarNombre(item)!=='sonido').map(item=>normalizarNombre(item)==='monitor'?'Parlante pequeño':item)])] : options;
 }
 
 function opcionesConSeleccion(options, selected = "") {
@@ -311,8 +311,8 @@ function recursosDeOtrasPresentaciones(row = {}) {
 }
 
 function recursosSeleccionados(row = {}) {
-  if (Array.isArray(row.recursosSeleccionados)) return row.recursosSeleccionados;
-  return String(row.recursos || "").split(",").map(item => item.trim()).filter(Boolean);
+  const resources = Array.isArray(row.recursosSeleccionados) ? row.recursosSeleccionados : String(row.recursos || "").split(",").map(item => item.trim()).filter(Boolean);
+  return [...new Set(resources.map(item => normalizarNombre(item) === "monitor" ? "Parlante pequeño" : item))];
 }
 
 /* ===================== Tablero Kanban ===================== */
