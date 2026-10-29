@@ -79,6 +79,9 @@ Campos principales:
 - `horaInicio`: hora del evento en formato HH:mm; opcional si aún no se ha definido. Se muestra junto a la fecha en la lista y el detalle.
 - `fechaFin`: campo anterior conservado para registros existentes y ciclos del sistema anual. El formulario de evento no lo pide ni lo modifica.
 - `lugar`, `publico`, `presupuesto`, `objetivo`, `notas`.
+- `sillasModo`: `automatico` o `manual`; `publicoAdicionalCantidad`: público adicional confirmado.
+- `sillasCantidad`: cantidad manual; los totales automáticos se derivan de Participantes y Equipo sin persistirlos. Los valores anteriores se respetan, incluido cero. Ver [Ficha y cálculo de sillas](./evento-aforo.md).
+- `ventiladoresCantidad`: cantidad opcional de ventiladores.
 - `createdAt`, `updatedAt`, `createdBy`, `updatedBy`.
 
 ## eventos/{eventoId}/actividades/{actividadId}

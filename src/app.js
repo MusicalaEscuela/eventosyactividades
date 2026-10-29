@@ -3,6 +3,8 @@ import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
 import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial';
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261029-editor-1';
+import { calculateEventAttendance } from './evento-aforo-model.js?v=20261029-aforo-1';
+import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261029-aforo-1';
 import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261028-guiado";
@@ -68,7 +70,7 @@ const state = {
   filteredEventos: [],
   selectedEventId: null,
   selectedEvent: null,
-  tab: "actividades",
+  tab: "ficha",
   childData: {
     actividades: [],
     muestras: [],
@@ -102,8 +104,11 @@ const state = {
   unsubPersonas: null,
   unsubConvocatoriasDocentes: null,
   unsubChildren: [],
+  childLoaded: new Set(),
+  childLoadErrors: new Set(),
   actividadesComunesSincronizadas: false
 };
+let refreshEventSeatForm = null;
 
 // Snapshot listeners replace these source arrays. Cache derived lists until
 // their sources change, so focusing or typing never rebuilds the whole roster.
@@ -440,6 +445,7 @@ function setModal(content, submitLabel = "Guardar") {
   modalForm.onsubmit = null;
   modalForm.onclick = null;
   modalForm.onchange = null;
+  refreshEventSeatForm = null;
   modalForm.innerHTML = `${content}<div class="modal-actions"><button type="button" class="btn btn-light" data-close>${closeLabel}</button>${submit}</div>`;
   modalForm.querySelector("[data-close]").addEventListener("click", () => modal.close());
   if (!modal.open) modal.showModal();
@@ -495,6 +501,7 @@ function listenLugares() {
     state.lugares = snapshot.docs.map(item => ({ id: item.id, ...item.data() }))
       .sort((a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"));
     refreshPlacesList();
+    if (state.selectedEvent) renderDetail();
   }, error => {
     console.error(error);
     toast(explicarError(error, "No pude leer la base de lugares"));
@@ -1034,7 +1041,8 @@ function resumenRepertorio() {
   const ensambles = presentaciones.filter(participantIsEnsemble).length;
   const invitacionesEnviadas = filas.filter(row => ["Enviada", "Aceptada", "Rechazada"].includes(row.invitacionEstado)).length;
   const invitacionesAceptadas = filas.filter(row => row.invitacionEstado === "Aceptada").length;
-  const totalInvitados = filas.reduce((total, row) => total + (row.tieneInvitados ? Number(row.invitadosCantidad) || 0 : 0), 0);
+  const attendance = eventAttendance();
+  const totalInvitados = attendance.invitadosRegistrados;
 
   const chips = [
     `<span class="badge neutral">${filas.length} inscripción${filas.length === 1 ? "" : "es"}</span>`,
@@ -1043,7 +1051,7 @@ function resumenRepertorio() {
     `<span class="badge neutral">${conteo.size} obra${conteo.size === 1 ? "" : "s"} distinta${conteo.size === 1 ? "" : "s"}</span>`,
     `<span class="badge info">${invitacionesEnviadas} invitación${invitacionesEnviadas === 1 ? "" : "es"} enviada${invitacionesEnviadas === 1 ? "" : "s"}</span>`,
     `<span class="badge success">${invitacionesAceptadas} aceptada${invitacionesAceptadas === 1 ? "" : "s"}</span>`,
-    `<span class="badge neutral">${totalInvitados} invitado${totalInvitados === 1 ? "" : "s"}</span>`,
+    `<span class="badge neutral">${attendance.ready ? totalInvitados : '…'} invitado${totalInvitados === 1 ? "" : "s"} de participantes confirmados</span>`,
     tiemposPendientes ? `<span class="badge warning">Subtotal conocido: ${formatWorkTime(minutos)} · ${tiemposPendientes} duración${tiemposPendientes === 1 ? '' : 'es'} por revisar</span>` : minutos ? `<span class="badge neutral">≈ ${formatWorkTime(minutos)}</span>` : "",
     tiemposAnteriores ? `<span class="badge warning">${tiemposAnteriores} tiempo(s) anterior(es) por repartir entre obras</span>` : '',
     sinObra ? `<span class="badge warning">${sinObra} sin obra asignada</span>` : "",
@@ -1228,12 +1236,17 @@ function clearChildListeners() {
   state.unsubChildren.forEach(unsub => unsub && unsub());
   state.unsubChildren = [];
   state.childData = emptyChildData();
+  state.childLoaded.clear();
+  state.childLoadErrors.clear();
 }
 
 function listenChildren(eventId) {
   clearChildListeners();
   CHILD_COLLECTIONS.forEach(child => {
     const unsub = onSnapshot(collection(db, COLLECTION, eventId, child), snapshot => {
+      if (state.selectedEventId !== eventId) return;
+      state.childLoaded.add(child);
+      state.childLoadErrors.delete(child);
       state.childData[child] = snapshot.docs
         .map(docSnap => ({ ...docSnap.data(), id: docSnap.id }))
         .sort((a, b) => {
@@ -1247,8 +1260,11 @@ function listenChildren(eventId) {
       syncDatalists();
       renderDetail();
     }, error => {
+      if (state.selectedEventId !== eventId) return;
+      state.childLoadErrors.add(child);
       console.error(error);
       toast(explicarError(error, `No pude leer ${child}`));
+      renderDetail();
     });
     state.unsubChildren.push(unsub);
   });
@@ -1309,7 +1325,7 @@ function selectEvent(eventId) {
   if (state.vistaPrincipal !== "eventos") mostrarVista("eventos");
   state.selectedEventId = eventId;
   state.selectedEvent = state.eventos.find(evento => evento.id === eventId) || null;
-  state.tab = "actividades";
+  state.tab = "ficha";
   listenChildren(eventId);
   renderEventList();
   renderDetail();
@@ -1320,6 +1336,35 @@ function clearSelection() {
   state.selectedEvent = null;
   clearChildListeners();
   renderDetail();
+}
+
+function eventSheetContext(event = state.selectedEvent) {
+  const selected = Boolean(event?.id && event.id === state.selectedEventId);
+  const data = selected ? state.childData : emptyChildData();
+  const required = ['muestras', 'equipo'];
+  return {
+    event: event || {}, participants: data.muestras, team: data.equipo,
+    programming: data.programacion, rider: data.rider, checklist: data.checklist,
+    places: state.lugares,
+    dataReady: !event?.id || selected && required.every(key => state.childLoaded.has(key) && !state.childLoadErrors.has(key)),
+    readError: selected && required.some(key => state.childLoadErrors.has(key))
+  };
+}
+
+function eventAttendance(ctx = eventSheetContext()) {
+  const attendance = calculateEventAttendance(ctx);
+  if (ctx.dataReady) return { ...attendance, ready: true };
+  return {
+    ...attendance, ready: false, readStatus: ctx.readError ? 'error' : 'loading',
+    totalPersonas: null, sillasSugeridas: null,
+    sillasTotal: attendance.sillasModo === 'manual' ? attendance.sillasManual : null,
+    warnings: [ctx.readError ? 'No se pudieron leer participantes o equipo. No es posible calcular las sillas con los datos completos.' : 'Cargando participantes y equipo para calcular las sillas.']
+  };
+}
+
+function printSelectedEventSheet() {
+  if (!state.selectedEvent) return;
+  if (!printEventSheet(eventSheetContext(), eventAttendance())) toast('Permite abrir la ventana para imprimir la ficha.');
 }
 
 function calculateProgress() {
@@ -1347,8 +1392,10 @@ function renderDetail() {
   pageTitle.textContent = state.selectedEvent.titulo || "Evento sin título";
 
   const evento = state.selectedEvent;
+  const attendance = eventAttendance();
   const progress = calculateProgress();
   const tabs = [
+    ["ficha", "Ficha del evento"],
     ["actividades", "Actividades"],
     ["muestras", "Participantes"],
     ["setlist", "Setlist / Orden"],
@@ -1383,7 +1430,7 @@ function renderDetail() {
           <div class="info-box"><span>Responsable</span><strong>${escapeHtml(evento.responsable || "Sin definir")}</strong></div>
           <div class="info-box"><span>Lugar</span><strong>${escapeHtml(evento.lugar || "Sin definir")}</strong></div>
           <div class="info-box"><span>Público</span><strong>${escapeHtml(evento.publico || "Sin definir")}</strong></div>
-          <div class="info-box"><span>Sillas del evento</span><strong>${escapeHtml(evento.sillasCantidad === '' || evento.sillasCantidad == null ? 'Por definir' : evento.sillasCantidad)}</strong></div><div class="info-box"><span>Ventiladores</span><strong>${escapeHtml(evento.ventiladoresCantidad === '' || evento.ventiladoresCantidad == null ? 'Por definir' : evento.ventiladoresCantidad)}</strong></div>
+          <div class="info-box"><span>Sillas por preparar</span><strong data-event-seats>${attendance.sillasTotal == null ? attendance.readStatus === 'error' ? 'No disponible' : 'Calculando…' : escapeHtml(attendance.sillasTotal)}</strong><small>${attendance.sillasModo === 'manual' ? 'Cantidad manual' : 'Automático · solo confirmados'}</small></div><div class="info-box"><span>Ventiladores</span><strong>${escapeHtml(evento.ventiladoresCantidad === '' || evento.ventiladoresCantidad == null ? 'Por definir' : evento.ventiladoresCantidad)}</strong></div>
           <div class="info-box"><span>Presupuesto</span><strong>${escapeHtml(evento.presupuesto || "Sin definir")}</strong></div>
           <div class="info-box wide"><span>Notas</span><strong>${escapeHtml(evento.notas || "Sin notas")}</strong></div>
         </div>
@@ -1400,7 +1447,7 @@ function renderDetail() {
     <section class="panel">
       <div class="row-between">
         <div class="tabs">
-          ${tabs.map(([key, label]) => `<button class="tab-btn ${state.tab === key ? "active" : ""}" data-tab="${key}">${label} (${key==='setlist'?eventPresentations().filter(row=>row.areaArtisticaId!=='artes-plasticas').length:state.childData[key].length})</button>`).join("")}
+          ${tabs.map(([key, label]) => `<button class="tab-btn ${state.tab === key ? "active" : ""}" data-tab="${key}">${label}${key === 'ficha' ? '' : ` (${key==='setlist'?eventPresentations().filter(row=>row.areaArtisticaId!=='artes-plasticas').length:state.childData[key].length})`}</button>`).join("")}
         </div>
         <div class="top-actions">
           ${permiteTablero ? `
@@ -1412,11 +1459,12 @@ function renderDetail() {
             <button class="btn btn-ghost" data-action="pick-students">👥 Del padrón</button>
             <button class="btn btn-ghost" data-action="new-ensemble">🎻 Ensamble</button>
             <button class="btn btn-ghost" data-action="config-participant-lists">⚙️ Configurar listas</button>` : ""}
-          ${state.tab!=="setlist"?`<button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>`:""}
+          ${!['ficha','setlist'].includes(state.tab)?`<button class="btn btn-primary" data-action="add-child">${state.tab === "partituras" ? "+ Subir archivo" : "+ Agregar"}</button>`:""}
         </div>
       </div>
+      ${['muestras','equipo','rider','checklist','programacion'].includes(state.tab) ? renderAttendanceSummary(attendance) : ''}
       ${state.tab === "muestras" ? resumenRepertorio()+participantControls() : ""}
-      <div class="table-panel ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
+      <div class="${state.tab === 'ficha' ? 'event-sheet-panel' : 'table-panel'} ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
     </section>
   `;
 
@@ -1432,6 +1480,10 @@ function renderDetail() {
     renderDetail();
   }));
   $$("[data-action]").forEach(btn => btn.addEventListener("click", () => handleAction(btn.dataset.action)));
+  eventDetail.querySelectorAll('[data-event-section]').forEach(button => button.addEventListener('click', () => {
+    if (!tabs.some(([key]) => key === button.dataset.eventSection)) return;
+    state.tab = button.dataset.eventSection; renderDetail();
+  }));
   eventDetail.querySelectorAll('[data-assemble-source]').forEach(button => button.addEventListener('click', () => openEnsembleForWork(button.dataset.assembleSource, Number(button.dataset.assembleIndex))));
   eventDetail.querySelectorAll('[data-edit-ensemble]').forEach(button => button.addEventListener('click', () => {
     const group = state.childData.muestras.find(row => row.id === button.dataset.editEnsemble);
@@ -1442,6 +1494,7 @@ function renderDetail() {
   if (state.tab === "setlist") setlist.mount(eventDetail);
   if (state.tab === "rider") stagePlots.mount($("#stagePlotsPanel"));
   if (state.tab === "partituras") scores.mount(eventDetail);
+  if (modal.open) refreshEventSeatForm?.();
 }
 
 /** Arrastrar tarjetas entre columnas para cambiar el estado. */
@@ -1569,6 +1622,7 @@ function participantVisibleRows(rows){
 }
 
 function renderTabContent(tab) {
+  if (tab === 'ficha') return renderEventSheet(eventSheetContext(), eventAttendance());
   if(tab === "setlist")return setlist.render();
   if (tab === "partituras") return scores.render();
   if (tab === "rider") return `<div id="stagePlotsPanel"></div>${renderRiderRecords()}`;
@@ -1727,6 +1781,8 @@ function rowActions(tab, id) {
 
 function handleAction(action) {
   if (action === "edit-event") openEventDialog(state.selectedEvent);
+  if (action === 'view-ficha') { state.tab = 'ficha'; renderDetail(); }
+  if (action === 'print-ficha') printSelectedEventSheet();
   if (action === "mark-realized") cerrarEvento("realizado");
   if (action === "mark-not-realized") cerrarEvento("no-realizado");
   if (action === "archive-event") archiveEvent();
@@ -1788,6 +1844,9 @@ function openParticipantListsDialog() {
 
 function openEventDialog(evento = null) {
   const isEdit = Boolean(evento?.id);
+  const originalContext = eventSheetContext(evento);
+  const initialAttendance = eventAttendance(originalContext);
+  let manualSeats = evento?.sillasCantidad == null ? '' : String(evento.sillasCantidad);
   setModal(`
     <h3>${isEdit ? "Editar evento" : "Nuevo evento"}</h3>
     <div class="form-grid">
@@ -1800,8 +1859,12 @@ function openEventDialog(evento = null) {
       <label>Hora<input type="time" name="horaInicio" value="${escapeHtml(evento?.horaInicio || "")}" /></label>
       <label class="wide">Etapa pública de la ruta<select name="etapaRutaMuestra"><option value="">Sin definir / no aplica</option><option value="recital" ${evento?.etapaRutaMuestra==='recital'?'selected':''}>Recital</option><option value="grande" ${evento?.etapaRutaMuestra==='grande'?'selected':''}>Presentación grande</option></select><span class="field-hint">Permite registrar la participación efectiva desde la ruta de cada estudiante. Inscribirlo no completa la etapa.</span></label>
       <label>Lugar<input name="lugar" list="lugaresDisponibles" value="${escapeHtml(evento?.lugar || "")}" /></label>
-      <label>Público<input name="publico" value="${escapeHtml(evento?.publico || "")}" /></label>
-      <label>Sillas para el evento (cantidad)<input type="number" min="0" step="1" name="sillasCantidad" value="${escapeHtml(evento?.sillasCantidad ?? '')}" placeholder="Por definir" /><span class="field-hint">Total general para público y organización.</span></label>
+      <label>Público (descripción)<input name="publico" value="${escapeHtml(evento?.publico || "")}" placeholder="Ej.: estudiantes y familias" /></label>
+      <fieldset class="wide form-section event-seat-settings"><legend>Asistencia confirmada y sillas</legend><div class="form-grid">
+        <label>Cálculo de sillas<select name="sillasModo"><option value="automatico" ${initialAttendance.sillasModo === 'automatico' ? 'selected' : ''}>Automático · solo personas confirmadas</option><option value="manual" ${initialAttendance.sillasModo === 'manual' ? 'selected' : ''}>Cantidad manual</option></select></label>
+        <label>Público adicional confirmado<input type="number" min="0" step="1" name="publicoAdicionalCantidad" value="${escapeHtml(evento?.publicoAdicionalCantidad ?? 0)}" /><span class="field-hint">Personas adicionales a los estudiantes, equipo e invitados ya registrados. No las sumes dos veces.</span></label>
+        <label>Sillas para el evento (cantidad)<input type="number" min="0" step="1" name="sillasCantidad" value="${escapeHtml(initialAttendance.sillasTotal ?? '')}" ${initialAttendance.sillasModo === 'automatico' ? 'readonly' : 'required'} placeholder="Calculando…" /><span class="field-hint">Una silla por persona confirmada. En automático cambia al confirmar estudiantes o equipo.</span></label>
+      </div><div id="eventSeatsPreview" class="event-seat-preview" role="status" aria-live="polite"></div><p class="field-hint">Se usa la invitación Aceptada de Participantes o su estado Confirmado, y la confirmación del Equipo. Los pendientes se muestran aparte. Las sillas en escena del rider se revisan por separado.</p></fieldset>
       <label>Ventiladores (cantidad)<input type="number" min="0" step="1" name="ventiladoresCantidad" value="${escapeHtml(evento?.ventiladoresCantidad ?? '')}" placeholder="Por definir" /></label>
       <label>Presupuesto<input name="presupuesto" value="${escapeHtml(evento?.presupuesto || "")}" placeholder="$" /></label>
       <label class="wide">Objetivo<textarea name="objetivo">${escapeHtml(evento?.objetivo || "")}</textarea></label>
@@ -1809,9 +1872,43 @@ function openEventDialog(evento = null) {
     </div>
   `, isEdit ? "Guardar cambios" : "Crear evento");
 
+  const seatMode = modalForm.querySelector('[name="sillasModo"]');
+  const seatQuantity = modalForm.querySelector('[name="sillasCantidad"]');
+  const extraPublic = modalForm.querySelector('[name="publicoAdicionalCantidad"]');
+  const preview = modalForm.querySelector('#eventSeatsPreview');
+  const attendanceForForm = () => {
+    const ctx = isEdit && state.selectedEventId === evento.id ? eventSheetContext(state.selectedEvent) : originalContext;
+    return eventAttendance({ ...ctx, event: { ...ctx.event, lugar: modalForm.querySelector('[name="lugar"]').value, sillasModo: seatMode.value, sillasCantidad: seatMode.value === 'manual' ? seatQuantity.value : '', publicoAdicionalCantidad: extraPublic.value } });
+  };
+  const refreshPreview = () => {
+    if (!preview.isConnected || !modal.open) return;
+    const attendance = attendanceForForm();
+    seatQuantity.readOnly = seatMode.value === 'automatico';
+    seatQuantity.required = seatMode.value === 'manual';
+    if (seatQuantity.readOnly) seatQuantity.value = attendance.sillasTotal ?? '';
+    preview.innerHTML = attendance.ready
+      ? `<strong>${attendance.sillasSugeridas} sillas según confirmaciones</strong><p>${attendance.estudiantes} estudiantes + ${attendance.equipo} personas del equipo + ${attendance.invitadosRegistrados} invitados + ${attendance.publicoAdicional} personas de público adicional.</p>${attendance.pendientes?.personas ? `<p>${attendance.pendientes.personas} persona(s) por confirmar, fuera del cálculo actual.</p>` : ''}${attendance.warnings?.length ? `<p>${attendance.warnings.map(escapeHtml).join('<br>')}</p>` : ''}`
+      : `<p>${attendance.warnings.map(escapeHtml).join('<br>')}</p>`;
+  };
+  refreshEventSeatForm = refreshPreview;
+  seatMode.addEventListener('change', () => {
+    if (seatMode.value === 'automatico') manualSeats = seatQuantity.value;
+    else seatQuantity.value = manualSeats || String(attendanceForForm().sillasSugeridas ?? '');
+    refreshPreview();
+  });
+  extraPublic.addEventListener('input', refreshPreview);
+  modalForm.querySelector('[name="lugar"]').addEventListener('input', refreshPreview);
+  seatQuantity.addEventListener('input', () => { if (seatMode.value === 'manual') manualSeats = seatQuantity.value; refreshPreview(); });
+  refreshPreview();
+
   modalForm.onsubmit = async (submitEvent) => {
     submitEvent.preventDefault();
     const data = Object.fromEntries(new FormData(modalForm).entries());
+    if (!['automatico','manual'].includes(data.sillasModo)) { toast('Elige cómo calcular las sillas.'); return; }
+    data.publicoAdicionalCantidad = data.publicoAdicionalCantidad === '' ? 0 : Number(data.publicoAdicionalCantidad);
+    if (!Number.isSafeInteger(data.publicoAdicionalCantidad) || data.publicoAdicionalCantidad < 0) { toast('El público adicional debe ser una cantidad entera de cero o más.'); return; }
+    if (data.sillasModo === 'automatico') data.sillasCantidad = '';
+    else if (data.sillasCantidad === '') { toast('Indica la cantidad manual de sillas.'); return; }
     for(const key of ['sillasCantidad','ventiladoresCantidad']){if(data[key]!==''){const value=Number(data[key]);if(!Number.isSafeInteger(value)||value<0){toast('Indica cantidades enteras de cero o más.');return;}data[key]=value;}}
     data.updatedAt = serverTimestamp();
     data.updatedBy = state.user.email;
@@ -2607,7 +2704,7 @@ function childForm(tab, row = {}) {
         </fieldset>
         <fieldset class="wide selector-recursos">
           <legend>Recursos técnicos</legend>
-          <p class="field-hint">Marca los equipos concretos para esta presentación. Las sillas del público y los ventiladores van en Editar evento. «Silla sin brazos» es para el músico en escena. El parlante incluye cable de energía; los telones forman un juego de 2.</p>
+          <p class="field-hint">Marca los equipos concretos para esta presentación. Consulta las sillas de asistencia en Ficha del evento; en Editar evento puedes ajustar su cálculo y los ventiladores. «Silla sin brazos» es para el músico en escena. El parlante incluye cable de energía; los telones forman un juego de 2.</p>
           ${recursosPrevios.length ? `<p class="field-hint">${row.id ? 'Puedes añadir los recursos de otras presentaciones del mismo evento y desmarcar los que no apliquen.' : 'Se dejaron marcados los recursos de otras presentaciones del mismo evento. Revisa y desmarca los que no apliquen.'}</p><button type="button" class="small-btn" id="reuseEventResources">Marcar recursos de otras presentaciones (${recursosPrevios.length})</button><p id="reuseResourcesResult" class="field-hint" role="status"></p>` : ''}
           <div class="check-grid">${opcionesRecursos.map(recurso => `
             <label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(recurso)}" ${seleccionados.includes(recurso) ? "checked" : ""} /><span>${escapeHtml(recurso)}${normalizarNombre(recurso)==='sonido'?' · registro anterior: precisa los equipos':''}</span></label>
@@ -3348,7 +3445,7 @@ function attachGlobalEvents() {
     state.placesDialogOpen = false;
     state.peopleDialogOpen = false;
   });
-  $("#printBtn").addEventListener("click", () => state.tab==='setlist'?setlist.print():window.print());
+  $("#printBtn").addEventListener("click", () => state.tab === 'ficha' && state.selectedEvent ? printSelectedEventSheet() : state.tab==='setlist'?setlist.print():window.print());
   ["#searchInput", "#typeFilter", "#statusFilter"].forEach(selector => $(selector).addEventListener("input", applyFilters));
   eventDetail.addEventListener("click", event => {
     const routeTarget=event.target.closest("[data-sample-route]");

@@ -206,6 +206,15 @@ La autenticación Google real y la persistencia en producción deben verificarse
 sesión autorizada después de publicar Hosting y las reglas correspondientes. Cambiar
 los archivos locales no despliega reglas ni inicializa documentos en producción.
 
+## Ficha del evento y sillas automáticas
+
+Cada evento abre una ficha con sus datos, programa, equipo y asistencia confirmada.
+Las sillas se calculan con estudiantes únicos, equipo, invitados y público adicional
+confirmado. El total se muestra también en las secciones operativas. Las cantidades
+manuales anteriores se conservan y pueden cambiarse a automático desde Editar evento.
+
+Uso y reglas de conteo: [Ficha del evento y cálculo de sillas](./docs/evento-aforo.md).
+
 ## Rider técnico con Stage Plot
 
 Rider técnico integra el editor completo de Stage Plot por presentación: plano
