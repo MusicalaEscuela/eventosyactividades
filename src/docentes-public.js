@@ -580,26 +580,11 @@ async function persist(estado,reviewed=false) {
   if(invalidTime){setStatus('Usa minutos enteros y segundos de 0 a 59. Por ejemplo: 3 minutos y 22 segundos.','error');invalidTime.closest('details').open=true;invalidTime.focus();return;}
   const previousPresentations = readPresentations();
   const previousRoster = rosterRows();
-  const payload = readForm(estado);
   if(estado==='Enviado'){
-    const issues=[];
-    payload.presentaciones.forEach((p,index)=>{
-      try{validateFichaInput({...payload,presentaciones:[p]});}
-      catch(error){issues.push({index,message:error.message});}
-    });
-    if(issues.length){
-      let box=document.getElementById('preflightReview');
-      if(!box){box=document.createElement('section');box.id='preflightReview';box.className='docentes-card';document.querySelector('.docentes-savebar').before(box);}
-      const grouped=new Map();
-      issues.forEach(issue=>{const name=payload.presentaciones[issue.index].estudianteGrupo||'Presentación '+(issue.index+1);if(!grouped.has(name))grouped.set(name,[]);grouped.get(name).push(issue);});
-      const pending=payload.presentaciones.some(p=>p.participacionEstado==='Por confirmar');
-      box.innerHTML='<h2>Solo falta revisar lo esencial</h2><p>Recursos, señal de inicio y acompañamiento son opcionales. Puedes enviarlos como están para que coordinación los revise.</p>'+[...grouped].map(([name,list])=>'<article><h3>'+esc(name)+'</h3>'+[...new Set(list.map(issue=>issue.message.replace(/^Presentación \d+(?: · [^:]+)?:\s*/,'')))].map(message=>'<p>'+esc(message)+'</p>').join('')+'<button type="button" class="btn btn-light" data-issue="'+list[0].index+'">Revisar este estudiante</button></article>').join('')+(pending?'<p>Si todos los estudiantes pendientes sí participarán, puedes confirmarlos juntos. Quienes estén marcados No participará se conservan así.</p><button type="button" class="btn btn-primary" id="confirmParticipantsSend">Confirmar participantes pendientes y enviar</button>':'');
-      box.querySelectorAll('[data-issue]').forEach(button=>button.onclick=()=>revealValidationError({message:'Presentación '+(Number(button.dataset.issue)+1)+': revisa sus datos.'}));
-      document.getElementById('confirmParticipantsSend')?.addEventListener('click',()=>{app.querySelectorAll('[name="participacionEstado"]').forEach(select=>{if(select.value==='Por confirmar')select.value='Participará';});markDirty();persist('Enviado');});
-      box.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Tus datos siguen aquí. Revisa únicamente los puntos indicados para enviar.','warning');return;
-    }
-    document.getElementById('preflightReview')?.remove();
+    app.querySelectorAll('[name="participacionEstado"]').forEach(select=>{if(select.value==='Por confirmar')select.value='Participará';});
   }
+  const payload = readForm(estado);
+  document.getElementById('preflightReview')?.remove();
 
   try { validateFichaInput(payload); } catch (error) { setStatus(errorText(error), 'error'); revealValidationError(error); return; }
   state.busy = true;

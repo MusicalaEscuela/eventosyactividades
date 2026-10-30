@@ -18,14 +18,12 @@ await page.addInitScript(rows=>sessionStorage.setItem('annual-test-store',JSON.s
 try{
  await page.goto(base+'/docentes.html#ficha='+token,{waitUntil:'domcontentloaded'});
  await page.locator('#submitFichaBtn').click();
- await page.locator('#confirmParticipantsSend').waitFor();
- assert.equal(await page.locator('#preflightReview article').count(),1,'One group per student, not repeated technical blockers.');
- await page.locator('#confirmParticipantsSend').click();
  await page.waitForFunction(token=>window.testStore.get('fichasDocentes/'+token).estado==='Enviado',token);
  const saved=await page.evaluate(token=>({parent:window.testStore.get('fichasDocentes/'+token),child:window.testStore.get('fichasDocentes/'+token+'/presentaciones/p01')}),token);
  assert.equal(saved.parent.asistencia,'Por confirmar');
  assert.equal(saved.child.participacionEstado,'Participará');
  assert.equal(saved.child.recursos,'');assert.equal(saved.child.inicio,'');assert.equal(saved.child.acompanamiento,'');
  assert.deepEqual(errors,[]);
- console.log('PASS: grouped participation confirmation; optional technical fields do not block sending; no attendance or resources invented.');
+ assert.equal(await page.locator('#confirmParticipantsSend').count(),0);
+ console.log('PASS: one-click submission with pending participants; optional fields preserved and no second confirmation.');
 }finally{await browser.close();}
