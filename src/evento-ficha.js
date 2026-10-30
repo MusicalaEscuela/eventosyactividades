@@ -1,3 +1,4 @@
+import { renderPreparation } from './preparacion-evento.js?v=20261030-preparacion-1';
 import { renderRiderSetup } from './rider-templates.js?v=20261029-templates-1';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
 const rows = value => Array.isArray(value) ? value : [];
@@ -93,7 +94,7 @@ export function renderEventSheet(ctx = {}, attendance = {}) {
       ${fact('Presupuesto', event.presupuesto)}${fact('Ventiladores', event.ventiladoresCantidad === 0 ? '0' : event.ventiladoresCantidad)}
       ${fact('Objetivo', event.objetivo, 'Sin objetivo registrado', 'is-wide is-prose')}${event.notas ? fact('Notas y acuerdos', event.notas, '', 'is-wide is-prose') : ''}
     </dl>
-    ${renderRiderSetup(ctx.rider)}<div class="event-sheet-bottom"><section class="event-sheet-card"><div class="event-sheet-section-heading"><h4>Minuto a minuto</h4><button type="button" class="small-btn" data-event-section="programacion">Ver programa${programCount ? ` (${programCount})` : ''}</button></div>${programmePreview(ctx.programming)}</section><section class="event-sheet-card"><div class="event-sheet-section-heading"><h4>Equipo confirmado</h4><button type="button" class="small-btn" data-event-section="equipo">Ver equipo</button></div>${confirmedTeam(ctx, attendance)}</section></div>
+    ${renderRiderSetup(ctx.rider)}${renderPreparation(ctx.checklist)}<div class="event-sheet-bottom"><section class="event-sheet-card"><div class="event-sheet-section-heading"><h4>Minuto a minuto</h4><button type="button" class="small-btn" data-event-section="programacion">Ver programa${programCount ? ` (${programCount})` : ''}</button></div>${programmePreview(ctx.programming)}</section><section class="event-sheet-card"><div class="event-sheet-section-heading"><h4>Equipo confirmado</h4><button type="button" class="small-btn" data-event-section="equipo">Ver equipo</button></div>${confirmedTeam(ctx, attendance)}</section></div>
     <p class="event-sheet-footnote event-sheet-chair-note">Las sillas del escenario se organizan en el rider de cada presentación. Este total sirve para preparar las sillas generales del evento.</p>
   </section>`;
 }

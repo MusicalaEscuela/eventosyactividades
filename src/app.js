@@ -1,3 +1,4 @@
+import { PREPARACION_EVENTO, renderPreparation } from './preparacion-evento.js?v=20261030-preparacion-1';
 import { riderTemplates, renderRiderSetup, parseTemplateItems, templateText } from './rider-templates.js?v=20261029-templates-1';
 import { createSetlist } from './setlist.js?v=20261028-setlist-3';
 import { createSampleRoutes } from './ruta-muestras.js?v=20261028-apoyo-2';
@@ -5,7 +6,7 @@ import { buildArtisticHistory } from './historial-areas.js?v=20261017-historial'
 import { createScores } from './partituras.js?v=20261016-login-fix';
 import { createStagePlots } from './stage-plots.js?v=20261029-editor-1';
 import { calculateEventAttendance } from './evento-aforo-model.js?v=20261029-aforo-1';
-import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261029-templates-1';
+import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261030-preparacion-1';
 import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
 import { createTeacherAdmin } from "./docentes-admin.js?v=20261028-guiado";
@@ -1465,6 +1466,7 @@ function renderDetail() {
       </div>
       ${['muestras','equipo','rider','checklist','programacion'].includes(state.tab) ? renderAttendanceSummary(attendance) : ''}
       ${['muestras','equipo','checklist','programacion'].includes(state.tab) ? renderRiderSetup(state.childData.rider) : ''}
+      ${['rider','equipo','checklist','programacion'].includes(state.tab) ? renderPreparation(state.childData.checklist) : ''}
       ${state.tab === "muestras" ? resumenRepertorio()+participantControls() : ""}
       <div class="${state.tab === 'ficha' ? 'event-sheet-panel' : 'table-panel'} ${state.tab === "muestras" ? "participants-table-panel" : ""}" id="tabContent">${renderTabContent(state.tab)}</div>
     </section>
@@ -1782,6 +1784,7 @@ function rowActions(tab, id) {
 }
 
 function handleAction(action) {
+  if (action === 'prepare-event-tasks') prepareEventTasks();
   if (action === 'rider-template-apply') applyRiderTemplate();
   if (action === 'rider-template-create') editRiderTemplate();
   if (action === 'rider-template-edit') editRiderTemplate(document.querySelector('#riderTemplateChoice')?.value);
@@ -3453,6 +3456,8 @@ function attachGlobalEvents() {
   $("#printBtn").addEventListener("click", () => state.tab === 'ficha' && state.selectedEvent ? printSelectedEventSheet() : state.tab==='setlist'?setlist.print():window.print());
   ["#searchInput", "#typeFilter", "#statusFilter"].forEach(selector => $(selector).addEventListener("input", applyFilters));
   eventDetail.addEventListener("click", event => {
+    const prep=event.target.closest('[data-preparation-toggle]');
+    if(prep){togglePreparation(prep);return;}
     const routeTarget=event.target.closest("[data-sample-route]");
     if(routeTarget){sampleRoutes.open(state.childData.muestras.find(row=>row.id===routeTarget.dataset.sampleRoute));return;}
     const routeStudent=event.target.closest("[data-route-student-open]");
@@ -3576,4 +3581,26 @@ async function applyRiderTemplate() {
     });
     toast(added?`${added} recursos añadidos. Revisa cantidades, disponibilidad y conexiones.`:'Los recursos ya estaban incluidos; se conservaron tus ajustes.');
   }catch(error){console.error(error);toast('No se pudo aplicar la plantilla. Vuelve a intentarlo.');}
+}
+
+async function prepareEventTasks() {
+  const eventId=state.selectedEventId;
+  if(!eventId)return;
+  try {
+    await runTransaction(db,async tx=>{
+      const entries=PREPARACION_EVENTO.map((item,i)=>({item,ref:doc(db,COLLECTION,eventId,'checklist','preparacion-base-'+i)}));
+      const snapshots=[];for(const entry of entries)snapshots.push(await tx.get(entry.ref));
+      entries.forEach(({item,ref},i)=>{if(snapshots[i].exists())return;tx.set(ref,{categoria:item[0],item:item[1],notas:item[2],preparacionEvento:true,estado:'Pendiente',responsable:'',prioridad:'Alta',fechaLimite:'',createdAt:serverTimestamp(),createdByEmail:state.user.email});});
+    });
+    toast('Preparación agregada. Asigna responsables y fechas en cada tarea.');
+  }catch(error){console.error(error);toast('No se pudo guardar la preparación. Vuelve a intentarlo.');}
+}
+async function togglePreparation(button) {
+  const row=state.childData.checklist.find(r=>r.id===button.dataset.preparationToggle);
+  if(!row||!row.preparacionEvento)return;
+  const ref=doc(db,COLLECTION,state.selectedEventId,'checklist',row.id);
+  const previous=row.estado||'Pendiente';button.disabled=true;
+  try{await runTransaction(db,async tx=>{const snap=await tx.get(ref);if(!snap.exists()||(snap.data().estado||'Pendiente')!==previous)throw new Error('conflict');tx.update(ref,{estado:['Listo','Confirmado','Realizado'].includes(previous)?'Pendiente':'Listo',updatedAt:serverTimestamp(),updatedBy:state.user.email});});}
+  catch(error){toast('La tarea cambió o no se pudo guardar. Revisa su estado y vuelve a intentarlo.');}
+  finally{if(button.isConnected)button.disabled=false;}
 }

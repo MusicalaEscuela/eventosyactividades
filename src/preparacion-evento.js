@@ -1,0 +1,19 @@
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export const PREPARACION_EVENTO = [
+  ['Día anterior','Revisar pilas de 9 V de bajos activos, instrumentos y pedales','Identificar cuáles usan pila. Cargar solo baterías recargables con cargador compatible; sustituir las desechables y llevar repuestos. Los instrumentos pasivos normalmente no necesitan pila.'],
+  ['Día anterior','Cargar micrófonos inalámbricos y sus transmisores','Revisar diademas, petacas y micrófonos de mano; probar autonomía y llevar pilas o baterías de repuesto.'],
+  ['Día anterior','Cargar transmisores y receptores inalámbricos de instrumentos','Cargar ambos extremos del sistema plug inalámbrico y llevar un cable plug de respaldo.'],
+  ['Día anterior','Cargar grabación y reproducción de pistas','Cámara o celular, computador, baterías externas y cargadores; liberar memoria y descargar las pistas para usarlas sin internet.'],
+  ['Antes de salir','Empacar cables, adaptadores y alimentación','Contrastar con el rider: plug, XLR entre parlantes, consola a parlante, receptores a consola, pistas, fuentes, extensiones y multitomas. Probar cables de respaldo.'],
+  ['Antes de salir','Comprobar luces, humo y consumibles','Revisar cables de corriente y control, fijaciones, líquido compatible, soportes y accesorios del montaje.'],
+  ['Montaje','Conectar y probar todos los sistemas inalámbricos','Emparejar cada transmisor con su receptor, revisar canales y probar el recorrido real sin cortes. Conectar los receptores a la consola.'],
+  ['Montaje','Afinar instrumentos y comprobar el piano','Afinar guitarras, bajos y otros instrumentos; comprobar afinación/transposición del teclado y pedal de sustain. Para piano acústico, coordinar afinador si hace falta.'],
+  ['Prueba de sonido','Probar piano, voces y pistas juntos','Verificar entradas, niveles, parlante grande y pequeño y escuchar desde el público. Probar especialmente al pianista que canta.'],
+  ['Prueba de sonido','Hacer una prueba de grabación','Grabar y reproducir un fragmento; comprobar encuadre, audio, memoria y alimentación del dispositivo.'],
+  ['Justo antes de abrir','Revisar batería final, afinación y cableado','Repasar cargas, afinar de nuevo si hace falta, fijar cables y dejar repuestos accesibles con una persona responsable.']
+];
+export function renderPreparation(rows=[]) {
+  const tasks=rows.filter(r=>r.preparacionEvento===true);
+  const done=tasks.filter(r=>['Listo','Confirmado','Realizado'].includes(r.estado)).length;
+  return `<section class="form-section" data-event-preparation style="margin:18px 0;padding:16px"><h3>🔋 Antes de que llegue el público</h3><p>Preparación de baterías, instrumentos, conexiones y grabación. Se guarda por evento.</p>${tasks.length?`<p><strong>${done} de ${tasks.length} tareas listas</strong></p><details ${done<tasks.length?'open':''}><summary>Revisar preparación previa</summary>${[...new Set(tasks.map(t=>t.categoria))].map(group=>`<h4>${esc(group)}</h4><ul>${tasks.filter(t=>t.categoria===group).map(t=>`<li style="margin:12px 0"><strong>${esc(t.item)}</strong> · ${esc(t.estado||'Pendiente')}${t.responsable?` · ${esc(t.responsable)}`:''}<p class="field-hint">${esc(t.notas)}</p><button type="button" class="small-btn" data-preparation-toggle="${esc(t.id)}">${['Listo','Confirmado','Realizado'].includes(t.estado)?'Volver a pendiente':'Marcar listo'}</button> <button type="button" class="small-btn" data-edit-child="checklist:${esc(t.id)}">Asignar / editar</button></li>`).join('')}</ul>`).join('')}</details>`:`<button type="button" class="btn btn-primary" data-action="prepare-event-tasks">Agregar lista de preparación previa</button><details><summary>Ver las tareas sugeridas</summary><ul>${PREPARACION_EVENTO.map(t=>`<li>${esc(t[0])}: ${esc(t[1])}</li>`).join('')}</ul></details>`}</section>`;
+}

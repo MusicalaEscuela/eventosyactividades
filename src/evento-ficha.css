@@ -103,3 +103,5 @@
   .event-sheet-print { padding: 0; }
   .event-sheet-print .event-sheet>header { display: flex !important; }
 }
+
+.event-sheet-print button { display: none !important; }
