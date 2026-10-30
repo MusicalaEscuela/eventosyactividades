@@ -433,7 +433,7 @@ function renderForm(savedMessage = '', showPrivateLink = false) {
       <div id="presentationsList">${state.presentations.map(presentationHtml).join('')}</div>
       <p id="presentationCount" class="docentes-help">${state.presentations.length} de 20 presentaciones</p>
     </section>
-  </fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Revisar y enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Envía a coordinación cuando la ficha esté lista para revisar.</p></section></form>${footer}`;
+  </fieldset><section class="docentes-savebar docentes-no-print" aria-label="Guardar formato"><p id="saveStatus" class="docentes-save-status" role="status" aria-live="polite" data-tone="${savedMessage ? 'success' : ''}">${esc(savedMessage || (editable ? state.token ? 'Ficha cargada desde el servidor. Puedes continuar llenándola.' : 'Aún no guardaste esta ficha. El enlace privado se crea al guardar.' : readonlyReason()))}</p><div id="saveErrorAction" class="hidden docentes-error-action"></div><div class="docentes-actions"><button type="button" id="saveDraftBtn" class="btn btn-light"${editable ? '' : ' disabled'}>Guardar borrador</button><button type="submit" id="submitFichaBtn" class="btn btn-primary"${editable ? '' : ' disabled'}>Enviar a coordinación</button></div><p class="docentes-help">Guardar borrador permite continuar después. Envía a coordinación cuando la ficha esté lista para revisar.</p></section></form>${footer}`;
   setEditable(editable);
   bindForm();
   updateAttendanceDetails();
@@ -581,36 +581,26 @@ async function persist(estado,reviewed=false) {
   const previousPresentations = readPresentations();
   const previousRoster = rosterRows();
   const payload = readForm(estado);
-  if(reviewed&&document.getElementById('preflightReview')?.dataset.signature!==JSON.stringify(payload))reviewed=false;
-  if(estado==='Enviado'&&!reviewed){
+  if(estado==='Enviado'){
     const issues=[];
-    if(payload.asistencia==='Por confirmar')issues.push({message:'Confirma si asistirás a la muestra.'});
     payload.presentaciones.forEach((p,index)=>{
-      const fail=message=>issues.push({index,message:`Presentación ${index+1} · ${p.estudianteGrupo||'Sin nombre'}: ${message}`});
-      if(p.participacionEstado==='Por confirmar')fail('Indica si participará o no participará.');
-      if(!p.estudianteGrupo)fail('Indica el nombre del estudiante o ensamble.');
-      if(p.participacionEstado==='No participará')return;
-      if(p.inscripcionId&&Array.isArray(state.ficha.estudiantesPrecargados)&&!rosterRows().some(source=>source.inscripcionId===p.inscripcionId))fail('La inscripción ya no está asignada en tu listado. Consulta a coordinación o marca No participará en esta ficha.');
-      try{validateFichaInput({...payload,presentaciones:[p]});}catch(error){fail(error.message.replace(/^Presentación 1(?: · [^:]+)?:\s*/,''));}
-      const card=app.querySelector('[data-presentation="'+index+'"]');
-      const selectedResources=[...card.querySelectorAll('[data-resource]:checked')];
-      if(!selectedResources.length)fail('Selecciona los equipos de la lista, Otro recurso o No requiere recursos adicionales.');
-      if(selectedResources.some(input=>input.value==='Otro recurso (detallar)')&&!card.querySelector('[name="recursos"]').value.trim())fail('Describe el otro recurso que necesitas.');
-      if(!/^(Empieza solo|Espera señal del docente|Empieza con la pista|Otro)/.test(p.inicio)||p.inicio==='Otro')fail('Selecciona cómo inicia y detalla la opción Otro.');
-      if(!p.acompanamiento||(p.acompanamiento!=='No requiere acompañamiento'&&!/^Sí · Docente: \S[\s\S]* · Función: \S[\s\S]*$/.test(p.acompanamiento)))fail('Define si necesita acompañamiento. Si es Sí, indica docente y función.');
+      try{validateFichaInput({...payload,presentaciones:[p]});}
+      catch(error){issues.push({index,message:error.message});}
     });
-    let box=document.getElementById('preflightReview');
-    if(!box){box=document.createElement('section');box.id='preflightReview';box.className='docentes-card';document.querySelector('.docentes-savebar').before(box);}
     if(issues.length){
-      box.innerHTML='<h2>Pendientes antes de enviar ('+issues.length+')</h2>'+issues.map((issue,i)=>'<p><button type="button" data-issue="'+i+'">'+esc(issue.message)+'</button></p>').join('');
-      box.querySelectorAll('[data-issue]').forEach(button=>button.onclick=()=>{const issue=issues[Number(button.dataset.issue)];if(issue.index!=null)revealValidationError({message:issue.message});else document.querySelector('[name="asistencia"]').focus();});
-      box.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Faltan '+issues.length+' punto(s). Tus cambios siguen aquí; puedes guardarlos como borrador.','warning');return;
+      let box=document.getElementById('preflightReview');
+      if(!box){box=document.createElement('section');box.id='preflightReview';box.className='docentes-card';document.querySelector('.docentes-savebar').before(box);}
+      const grouped=new Map();
+      issues.forEach(issue=>{const name=payload.presentaciones[issue.index].estudianteGrupo||'Presentación '+(issue.index+1);if(!grouped.has(name))grouped.set(name,[]);grouped.get(name).push(issue);});
+      const pending=payload.presentaciones.some(p=>p.participacionEstado==='Por confirmar');
+      box.innerHTML='<h2>Solo falta revisar lo esencial</h2><p>Recursos, señal de inicio y acompañamiento son opcionales. Puedes enviarlos como están para que coordinación los revise.</p>'+[...grouped].map(([name,list])=>'<article><h3>'+esc(name)+'</h3>'+[...new Set(list.map(issue=>issue.message.replace(/^Presentación \d+(?: · [^:]+)?:\s*/,'')))].map(message=>'<p>'+esc(message)+'</p>').join('')+'<button type="button" class="btn btn-light" data-issue="'+list[0].index+'">Revisar este estudiante</button></article>').join('')+(pending?'<p>Si todos los estudiantes pendientes sí participarán, puedes confirmarlos juntos. Quienes estén marcados No participará se conservan así.</p><button type="button" class="btn btn-primary" id="confirmParticipantsSend">Confirmar participantes pendientes y enviar</button>':'');
+      box.querySelectorAll('[data-issue]').forEach(button=>button.onclick=()=>revealValidationError({message:'Presentación '+(Number(button.dataset.issue)+1)+': revisa sus datos.'}));
+      document.getElementById('confirmParticipantsSend')?.addEventListener('click',()=>{app.querySelectorAll('[name="participacionEstado"]').forEach(select=>{if(select.value==='Por confirmar')select.value='Participará';});markDirty();persist('Enviado');});
+      box.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Tus datos siguen aquí. Revisa únicamente los puntos indicados para enviar.','warning');return;
     }
-    box.innerHTML='<h2>Revisa antes de enviar</h2><p>Asistencia docente: '+esc(payload.asistencia)+'</p>'+payload.presentaciones.map(p=>'<article><h3>'+esc(p.estudianteGrupo)+' · '+esc(p.participacionEstado)+'</h3>'+(p.participacionEstado==='No participará'?'<p>No se incorporará como nueva presentación.</p>':'<p>'+esc(p.repertorio)+'</p><p>Duración: '+Math.floor(Math.round(p.duracionMin*60)/60)+':'+String(Math.round(p.duracionMin*60)%60).padStart(2,'0')+' (min:seg)</p><p>Recursos: '+esc(p.recursos)+'</p><p>Inicio: '+esc(p.inicio)+'</p><p>Acompañamiento: '+esc(p.acompanamiento)+'</p>')+'</article>').join('')+'<button type="button" class="btn btn-primary" id="confirmTeacherSend">Confirmar y enviar a coordinación</button><button type="button" class="btn btn-light" id="cancelTeacherSend">Volver a corregir</button>';
-    box.dataset.signature=JSON.stringify(payload);
-    document.getElementById('confirmTeacherSend').onclick=()=>persist('Enviado',true);
-    document.getElementById('cancelTeacherSend').onclick=()=>box.remove();box.scrollIntoView({behavior:'smooth',block:'start'});return;
+    document.getElementById('preflightReview')?.remove();
   }
+
   try { validateFichaInput(payload); } catch (error) { setStatus(errorText(error), 'error'); revealValidationError(error); return; }
   state.busy = true;
   setEditable(false);

@@ -1,0 +1,31 @@
+import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {homedir} from 'node:os';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url);
+const {chromium}=require(homedir()+'/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const mock=await readFile(new URL('./firebase-mock.js',import.meta.url),'utf8');
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+const page=await browser.newPage();const errors=[];
+page.on('pageerror',e=>errors.push(e.message));
+await page.route('**/src/firebase-config.js*',r=>r.fulfill({contentType:'text/javascript',body:new URL(r.request().url()).search?"export * from './firebase-config.js';":mock}));
+await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({contentType:'text/css',body:''}));
+const token='a'.repeat(64),base=process.env.TEST_URL||'http://127.0.0.1:4277';
+const data={eventoId:'simple',docenteId:'teacher',docenteNombre:'Profe',asistencia:'Por confirmar',estado:'Borrador',revision:1,cantidadPresentaciones:2,revocada:false,reabiertaHasta:null};
+const rows=[['convocatoriasDocentes/simple',{eventoId:'simple',titulo:'Muestra',abierta:true,cierreAt:{seconds:2000000000},docentes:{teacher:'Profe'}}],['convocatoriasDocentes/simple/reservas/teacher',{fichaToken:token}],['fichasDocentes/'+token,data]];
+for(let i=1;i<=2;i++)rows.push(['fichasDocentes/'+token+'/presentaciones/p0'+i,{tipo:'Individual',areaArtisticaId:'musica',estudianteGrupo:'Mariana',participacionEstado:'Por confirmar',repertorio:'Obra '+i,duracionMin:2,cantidadObras:1,revision:1,recursos:'',inicio:'',acompanamiento:'',obrasJson:'',inscripcionId:'',integrantesTexto:'',materialUrl:'',preparacion:'',entrada:'',cierre:'',observaciones:'',instrumento:'Piano'}]);
+await page.addInitScript(rows=>sessionStorage.setItem('annual-test-store',JSON.stringify(rows)),rows);
+try{
+ await page.goto(base+'/docentes.html#ficha='+token,{waitUntil:'domcontentloaded'});
+ await page.locator('#submitFichaBtn').click();
+ await page.locator('#confirmParticipantsSend').waitFor();
+ assert.equal(await page.locator('#preflightReview article').count(),1,'One group per student, not repeated technical blockers.');
+ await page.locator('#confirmParticipantsSend').click();
+ await page.waitForFunction(token=>window.testStore.get('fichasDocentes/'+token).estado==='Enviado',token);
+ const saved=await page.evaluate(token=>({parent:window.testStore.get('fichasDocentes/'+token),child:window.testStore.get('fichasDocentes/'+token+'/presentaciones/p01')}),token);
+ assert.equal(saved.parent.asistencia,'Por confirmar');
+ assert.equal(saved.child.participacionEstado,'Participará');
+ assert.equal(saved.child.recursos,'');assert.equal(saved.child.inicio,'');assert.equal(saved.child.acompanamiento,'');
+ assert.deepEqual(errors,[]);
+ console.log('PASS: grouped participation confirmation; optional technical fields do not block sending; no attendance or resources invented.');
+}finally{await browser.close();}
