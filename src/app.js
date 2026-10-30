@@ -1974,6 +1974,7 @@ function openEnsembleForWork(sourceId, workIndex) {
   const groups = findEnsemblesForWork(state.childData.muestras, work);
   const create = () => openChildDialog('muestras', {
     esEnsamble: true, estudianteGrupo: `Ensamble · ${work}`, repertorios: [work], repertorio: work,
+    duracionPorObra: true, duracionesObras: [{obra:work,minutos:getWorkMinutes(source,work)}], duracionMin:getWorkMinutes(source,work),
     areaArtisticaId: source.areaArtisticaId || 'musica', modalidadPresentacionId: 'ensambles',
     docente: source.docente || '', genero: source.genero || '',
     integrantes: [{ nombre: source.estudianteGrupo || '', studentId: source.studentId || '', participanteId: source.id, instrumento: source.instrumento || '' }]
