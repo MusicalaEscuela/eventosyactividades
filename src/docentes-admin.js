@@ -57,8 +57,8 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
   const publicUrl = () => { const u = new URL('docentes.html', location.href); u.searchParams.set('evento', event.id); return u.href; };
   const currentContext = () => { const id = event?.id, version = generation, email = user()?.email; return { id, email, active: () => generation === version && event?.id === id && user()?.email === email && Boolean(email) }; };
   function preparationSummary(results, failures = []) {
-    const counts = results.map(result => `${result.name}: ${result.total} inscripción(es), ${result.created ? result.seeded : `${result.added.length} presentación(es) nueva(s); respuestas anteriores conservadas${result.pending ? '; '+result.pending+' pendiente(s) en el selector' : ''}`}${result.created ? ' presentación(es) precargada(s)' : ''}${result.excess ? `; el listado completo está disponible, la ficha admite hasta 20 presentaciones` : ''}`);
-    return `${results.length} ficha(s) preparadas y verificadas.${counts.length ? ' ' + counts.join(' · ') : ''}${failures.length ? ' Pendientes: ' + failures.join(' · ') : ''}`;
+    return `${results.length} ficha(s) listas para compartir.${failures.length ? ` ${failures.length} ficha(s) pendientes de verificar. La configuración ya está guardada; no necesitas guardarla otra vez.` : ''}`;
+
   }
   async function prepareTeacher(docenteId, context, expectedToken = '') {
     if (!context.active()) throw Error('La muestra o la sesión cambió. Vuelve a abrir el panel.');
@@ -138,16 +138,16 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
     return prepared;
   }
   async function prepareMany(ids, context, progress = () => {}) {
-    const results = [], failures = [];
+    const results = [], failures = [], failedIds = [];
     for (const id of ids) {
       if (!context.active()) throw Error('La muestra o la sesión cambió. Las fichas ya preparadas se conservan.');
       progress(results.length + failures.length + 1, ids.length);
       try { results.push(await prepareTeacher(id, context)); } catch (error) {
         if (!context.active()) throw error;
-        failures.push(`${config?.docentes?.[id] || id}: ${error.message}`);
+        failedIds.push(id); failures.push(`${config?.docentes?.[id] || id}: ${error.message}`);
       }
     }
-    return { results, failures };
+    return { results, failures, failedIds };
   }
   async function preparePrivateLink(docenteId, token = '') {
     if (preparing) return;
@@ -257,6 +257,7 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
     modalForm.onsubmit = async e => {
       e.preventDefault(); const result = modalForm.querySelector('#teacherConfigResult'); const button = modalForm.querySelector('[type="submit"]');
       const active = () => context.active() && modal.open && modalForm.contains(result);
+      let configurationSaved = false;
       const fd = new FormData(modalForm); const docentes = Object.fromEntries(fd.getAll('docente').map(id => [id, available.get(id)]));
       try {
         button.disabled = true; result.textContent = 'Guardando configuración…';
@@ -287,24 +288,43 @@ export function createTeacherAdmin({ user, people, teacherCandidates = people, s
         await runTransaction(db, async tx => {
           const [current, canonical] = await Promise.all([tx.get(ref), tx.get(doc(db, 'eventos', eventId))]);
           if (!active()) throw Error('La configuración o la muestra cambió. Vuelve a abrir el formulario.');
-          if (current.exists() !== Boolean(previous) || timestampMillis(current.data()?.updatedAt) !== timestampMillis(previous?.updatedAt)) throw Error('La configuración cambió en otra ventana. Vuelve a abrirla para guardar.');
+          if (current.exists() !== Boolean(previous) || !samePreload({docentes:current.data()?.docentes||{},abierta:current.data()?.abierta||false,cierre:timestampMillis(current.data()?.cierreAt)}, {docentes:previous?.docentes||{},abierta:previous?.abierta||false,cierre:timestampMillis(previous?.cierreAt)})) throw Error('La configuración cambió en otra ventana. Vuelve a abrirla para guardar.');
           if (!canonical.exists() || abierta && ['Realizado','No realizado','Archivado'].includes(canonical.data().estado)) throw Error('Este evento ya está cerrado o no está disponible.');
           const latestEvent = canonical.data();
           const marked = Array.isArray(current.data()?.fichasPrivadasPreparadas) ? current.data().fichasPrivadasPreparadas.filter(id => docentes[id]) : [];
           tx.set(ref,{...current.data(),eventoId:eventId,titulo:latestEvent.titulo || 'Muestra',fechaInicio:latestEvent.fechaInicio || '',lugar:latestEvent.lugar || '',abierta,cierreAt:fecha,docentes,fichasPrivadasPreparadas:marked,updatedAt:serverTimestamp(),updatedBy:user().email});
         });
+        configurationSaved = true;
+        previous = {docentes, abierta, cierreAt:fecha};
         const saved = await getDocFromServer(ref);
         const stored = saved.data();
-        if (!saved.exists() || stored.abierta !== abierta || timestampMillis(stored.cierreAt) !== fecha.toMillis() || Object.keys(stored.docentes || {}).length !== Object.keys(docentes).length || Object.entries(docentes).some(([id,name]) => stored.docentes?.[id] !== name)) throw Error('No pude confirmar todos los docentes guardados. Vuelve a abrir la configuración.');
+        if (!saved.exists() || stored.abierta !== abierta || timestampMillis(stored.cierreAt) !== fecha.toMillis() || Object.keys(stored.docentes || {}).length !== Object.keys(docentes).length || Object.entries(docentes).some(([id,name]) => stored.docentes?.[id] !== name)) throw Error('El servidor aceptó el guardado, pero la lectura posterior muestra diferencias en docentes, apertura o cierre. No se han preparado nuevas fichas. Conserva esta ventana mientras revisas la configuración.');
+        previous = stored;
+        modalForm.querySelector('[data-close]').textContent = 'Cerrar';
         if (!active()) return;
         if (closedEvent || !Object.keys(docentes).length) { result.textContent = 'Configuración guardada y verificada.'; toast(result.textContent); modal.close(); return; }
         preparing = true; render();
         const prepared = await prepareMany(Object.keys(docentes), { ...context, active }, (index, total) => { if (active()) result.textContent = `Configuración guardada. Preparando ficha ${index} de ${total}…`; });
         if (!active()) return;
-        prepareMessage = preparationSummary(prepared.results, prepared.failures);
-        result.textContent = 'Configuración guardada y verificada. ' + prepareMessage; toast(result.textContent);
+        const showPreparation = outcome => {
+          prepareMessage = preparationSummary(outcome.results, outcome.failures);
+          result.innerHTML = `<strong>Configuración guardada.</strong><p>${esc(prepareMessage)}</p>${outcome.results.length ? `<p>Listas: ${outcome.results.map(r=>esc(r.name)).join(', ')}.</p>` : ''}${outcome.failures.length ? `<details><summary>Ver qué falta verificar</summary><ul>${outcome.failures.map(message=>`<li>${esc(message)}</li>`).join('')}</ul></details><button type="button" class="btn btn-primary" data-retry-pending>Reintentar solo las fichas pendientes</button>` : ''}`;
+          const retry = result.querySelector('[data-retry-pending]');
+          if(retry) retry.onclick = async () => {
+            retry.disabled=true;preparing=true;
+            try {
+              const retried=await prepareMany(outcome.failedIds,{...context,active});
+              if(!active())return;
+              showPreparation({...retried,results:[...outcome.results,...retried.results]});
+              if(!retried.failures.length) {toast(prepareMessage);modal.close();}
+            } catch(error) { if(active())toast(error.message); }
+            finally { preparing=false;if(retry.isConnected)retry.disabled=false;if(context.active())render(); }
+          };
+        };
+        showPreparation(prepared); toast(prepareMessage);
+        button.textContent = 'Guardar cambios de configuración';
         if (!prepared.failures.length) modal.close();
-      } catch(error) { if (active()) result.textContent = error.message; } finally { if (context.active()) { preparing = false; render(); } if (button.isConnected) button.disabled = false; }
+      } catch(error) { if (active()) result.textContent = (configurationSaved ? 'Configuración guardada. La comprobación posterior quedó pendiente: ' : 'No se guardaron cambios: ') + error.message; } finally { if (context.active()) { preparing = false; render(); } if (button.isConnected) button.disabled = false; }
     };
   }
   async function reopen(token) {

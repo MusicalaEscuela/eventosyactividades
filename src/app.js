@@ -9,7 +9,7 @@ import { calculateEventAttendance } from './evento-aforo-model.js?v=20261029-afo
 import { renderEventSheet, renderAttendanceSummary, printEventSheet } from './evento-ficha.js?v=20261030-preparacion-1';
 import { getWorkMinutes, workMinutes, formatWorkTime, workDurationReference, workDurationSummary } from './obras-duracion.js?v=20261028-apoyo-2';
 import { createAnnualSystem } from "./muestras-anual.js?v=20261028-apoyo-2";
-import { createTeacherAdmin } from "./docentes-admin.js?v=20261028-guiado";
+import { createTeacherAdmin } from "./docentes-admin.js?v=20261030-config-feedback-1";
 import { collectReusableContext, uniqueSuggestions } from "./eventos-context.js?v=20261017-personas";
 import { normalizarNombre } from "./docentes-model.js";
 import { ACTIVITY_STATES, ACTIVITY_STATE_HELP, ACTIVITY_COLUMNS, ACTIVITY_RESPONSIBLE_GROUPS, normalizeActivityState } from "./actividades-model.js";
