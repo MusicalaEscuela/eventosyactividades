@@ -278,7 +278,7 @@ const FIELD_OPTIONS = {
 };
 
 // Cada evento puede ajustar estas opciones desde Participantes sin afectar los demás.
-const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular', 'Sistema inalámbrico para instrumentos (plug)', 'Audífonos de monitoreo (interfaz de audio)'];
+const RECURSOS_EQUIPO_EVENTO = ['Guitarra electroacústica', 'Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular', 'Sistema inalámbrico para instrumentos (plug)', 'Audífonos de monitoreo (interfaz de audio)'];
 const PRESENTATION_PRESETS = [
   {id:'rock',name:'🎸 Banda de rock',resources:['Guitarra eléctrica','Amplificador de guitarra','Bajo eléctrico','Amplificador de bajo','Batería','Micrófonos de batería','Micrófono','Base de micrófono','Consola / mezcla','Parlante Empire Sound con cable de energía','Parlante pequeño','Cable plug (instrumento)','Afinador']},
   {id:'piano-solo',name:'🎹 Piano / teclado',resources:['Piano / teclado','Base para teclado','Silla sin brazos','Cable plug (instrumento)','Consola / mezcla','Parlante Empire Sound con cable de energía']},
@@ -2389,6 +2389,24 @@ function openChildDialog(tab, row = null) {
     });
   }
 
+  modalForm.querySelector('#savePresentationResourceList')?.addEventListener('click',async event=>{
+    const button=event.currentTarget,result=modalForm.querySelector('#presentationResourceListResult');
+    const resources=normalizarLista(modalForm.querySelector('#presentationResourceList').value);
+    if(!resources.length){result.textContent='Deja al menos un equipo en la lista.';return;}
+    const eventId=state.selectedEventId;
+    button.disabled=true;result.textContent='Guardando lista…';
+    try{
+      await updateDoc(doc(db,COLLECTION,eventId),{'listasParticipantes.recursosTecnicos':resources,updatedAt:serverTimestamp(),updatedBy:state.user.email});
+      const grid=modalForm.querySelector('.selector-recursos [name="recursosSeleccionados"]')?.closest('.check-grid');
+      if(grid){
+        const selected=[...grid.querySelectorAll('input:checked')].map(input=>input.value);
+        const options=[...new Set([...RECURSOS_EQUIPO_EVENTO,...resources,...selected,...presentationTemplates().flatMap(t=>t.resources)])];
+        grid.innerHTML=options.map(resource=>`<label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(resource)}" ${selected.includes(resource)?'checked':''} /><span>${escapeHtml(resource)}</span></label>`).join('');
+      }
+      result.textContent='Lista guardada. Ya puedes marcar los nuevos equipos y guardar la presentación.';
+    }catch(error){console.error(error);result.textContent='No se pudo guardar la lista. Tus cambios siguen aquí; intenta de nuevo.';}
+    finally{button.disabled=false;}
+  });
   modalForm.querySelector('#applyPresentationTemplate')?.addEventListener('click',()=>{
     const template=presentationTemplates().find(t=>t.id===modalForm.querySelector('#presentationTemplate').value);
     const result=modalForm.querySelector('#presentationTemplateResult');
@@ -2736,6 +2754,12 @@ function childForm(tab, row = {}) {
           <div class="check-grid">${opcionesRecursos.map(recurso => `
             <label class="check-card"><input type="checkbox" name="recursosSeleccionados" value="${escapeHtml(recurso)}" ${seleccionados.includes(recurso) ? "checked" : ""} /><span>${escapeHtml(recurso)}${normalizarNombre(recurso)==='sonido'?' · registro anterior: precisa los equipos':''}</span></label>
           `).join("")}</div>
+          <details><summary>⚙️ Agregar o editar equipos de la lista</summary>
+            <p class="field-hint">Una opción por línea. Esta lista se comparte con las presentaciones de este evento. Los equipos ya seleccionados se conservan. Guardar la lista no guarda todavía los cambios de la presentación.</p>
+            <label>Equipos disponibles<textarea id="presentationResourceList" rows="8">${escapeHtml(listaParticipantes('recursosTecnicos',RECURSOS_TECNICOS_INICIALES).join('\n'))}</textarea></label>
+            <button type="button" class="small-btn" id="savePresentationResourceList">Guardar lista de equipos</button>
+            <p id="presentationResourceListResult" class="field-hint" role="status"></p>
+          </details>
           <label class="otro-recurso">Otro recurso<input name="recursoOtro" placeholder="Ej: Proyector" /></label>
         </fieldset>
         <label class="wide">Notas<textarea name="notas">${escapeHtml(row.notas || "")}</textarea></label>
