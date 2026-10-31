@@ -279,6 +279,13 @@ const FIELD_OPTIONS = {
 
 // Cada evento puede ajustar estas opciones desde Participantes sin afectar los demás.
 const RECURSOS_EQUIPO_EVENTO = ['Soporte de parlante Empire Sound', 'Parlante Empire Sound con cable de energía', 'Estructura para telón', 'Telones cafés (juego de 2)', 'Trípode para cámara y/o celular', 'Sistema inalámbrico para instrumentos (plug)', 'Audífonos de monitoreo (interfaz de audio)'];
+const PRESENTATION_PRESETS = [
+  {id:'rock',name:'🎸 Banda de rock',resources:['Guitarra eléctrica','Amplificador de guitarra','Bajo eléctrico','Amplificador de bajo','Batería','Micrófonos de batería','Micrófono','Base de micrófono','Consola / mezcla','Parlante Empire Sound con cable de energía','Parlante pequeño','Cable plug (instrumento)','Afinador']},
+  {id:'piano-solo',name:'🎹 Piano / teclado',resources:['Piano / teclado','Base para teclado','Silla sin brazos','Cable plug (instrumento)','Consola / mezcla','Parlante Empire Sound con cable de energía']},
+  {id:'acustico',name:'🎻 Ensamble acústico',resources:['Guitarra acústica','Micrófono','Base de micrófono','Atril','Silla sin brazos','Consola / mezcla','Parlante Empire Sound con cable de energía']},
+  {id:'vocal',name:'🎤 Voz con pista',resources:['Micrófono de voz inalámbrico','Pista','Consola / mezcla','Parlante Empire Sound con cable de energía','Parlante pequeño']}
+];
+function presentationTemplates(){return [...PRESENTATION_PRESETS,...riderTemplates(state.eventos).filter(t=>!t.builtin).map(t=>({id:'rider:'+t.id,name:'🧰 '+t.name,resources:t.items.map(item=>item[1])}))];}
 const RECURSOS_TECNICOS_INICIALES = [
   ...RECURSOS_EQUIPO_EVENTO,
   // Sonido general
@@ -2382,6 +2389,14 @@ function openChildDialog(tab, row = null) {
     });
   }
 
+  modalForm.querySelector('#applyPresentationTemplate')?.addEventListener('click',()=>{
+    const template=presentationTemplates().find(t=>t.id===modalForm.querySelector('#presentationTemplate').value);
+    const result=modalForm.querySelector('#presentationTemplateResult');
+    if(!template){result.textContent='Elige primero una plantilla.';return;}
+    const resources=new Set(template.resources.map(normalizarNombre));let added=0;
+    modalForm.querySelectorAll('[name="recursosSeleccionados"]').forEach(input=>{if(resources.has(normalizarNombre(input.value))&&!input.checked){input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));added++;}});
+    result.textContent=`${added} equipo(s) añadidos. Puedes desmarcar o añadir equipos antes de guardar.`;
+  });
   modalForm.querySelector('#reuseEventResources')?.addEventListener('click',()=>{
     const used=new Set(recursosDeOtrasPresentaciones(row).map(normalizarNombre));let added=0;
     modalForm.querySelectorAll('[name="recursosSeleccionados"]').forEach(input=>{if(used.has(normalizarNombre(input.value))&&!input.checked){input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));added++;}});
@@ -2671,7 +2686,7 @@ function childForm(tab, row = {}) {
 
   if (tab === "muestras") {
     const recursosPrevios=recursosDeOtrasPresentaciones(row);
-    const opcionesRecursos = [...new Set([...listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES), ...recursosSeleccionados(row), ...recursosPrevios])];
+    const opcionesRecursos = [...new Set([...listaParticipantes("recursosTecnicos", RECURSOS_TECNICOS_INICIALES), ...recursosSeleccionados(row), ...recursosPrevios, ...presentationTemplates().flatMap(t=>t.resources)])];
     const editorWorks = participantWorks(row);
     const seleccionados = row.id ? recursosSeleccionados(row) : [...new Set([...recursosSeleccionados(row), ...recursosPrevios])];
     const generoActual = normalizeGenre(row.genero || "Sin definir");
@@ -2713,6 +2728,9 @@ function childForm(tab, row = {}) {
         </fieldset>
         <fieldset class="wide selector-recursos">
           <legend>Recursos técnicos</legend>
+          <label>Plantilla para esta presentación<select id="presentationTemplate"><option value="">Elige una plantilla…</option>${presentationTemplates().map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join('')}</select></label>
+          <button type="button" class="small-btn" id="applyPresentationTemplate">Añadir equipos de la plantilla</button>
+          <p class="field-hint" id="presentationTemplateResult" role="status">Se añaden equipos sin quitar lo que ya marcaste. Ajusta según los integrantes e instrumentos. Las plantillas propias creadas en Rider técnico también aparecen aquí; cantidades, cables y montaje compartido se revisan allí.</p>
           <p class="field-hint">Marca los equipos concretos para esta presentación. Consulta las sillas de asistencia en Ficha del evento; en Editar evento puedes ajustar su cálculo y los ventiladores. «Silla sin brazos» es para el músico en escena. El parlante incluye cable de energía; los telones forman un juego de 2.</p>
           ${recursosPrevios.length ? `<p class="field-hint">${row.id ? 'Puedes añadir los recursos de otras presentaciones del mismo evento y desmarcar los que no apliquen.' : 'Se dejaron marcados los recursos de otras presentaciones del mismo evento. Revisa y desmarca los que no apliquen.'}</p><button type="button" class="small-btn" id="reuseEventResources">Marcar recursos de otras presentaciones (${recursosPrevios.length})</button><p id="reuseResourcesResult" class="field-hint" role="status"></p>` : ''}
           <div class="check-grid">${opcionesRecursos.map(recurso => `
